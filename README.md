@@ -1,6 +1,7 @@
 # DTree—Directed Tree Library for Symbolic Structure
 
 [![build](https://github.com/EnisOlgac/DTree/actions/workflows/build.yml/badge.svg)](https://github.com/EnisOlgac/DTree/actions/workflows/build.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23395710.svg)](https://doi.org/10.5281/zenodo.23395710)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7560--6107-a6ce39.svg)](https://orcid.org/0009-0009-7560-6107)
 
@@ -101,6 +102,8 @@ The method is described in:
 ## Citing
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
+
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree: Directed Tree Library for Symbolic Structure*, Zenodo, 2026. doi: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710) (all versions; version 1.0.0: [10.5281/zenodo.23395711](https://doi.org/10.5281/zenodo.23395711)).
 
 ## License
 

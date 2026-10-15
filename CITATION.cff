@@ -10,6 +10,7 @@ authors:
 repository-code: "https://github.com/EnisOlgac/DTree"
 license: MIT
 version: "1.0.0"
+doi: "10.5281/zenodo.23395710"  # all versions; v1.0.0 is 10.5281/zenodo.23395711
 date-released: "2026-10-15"
 keywords:
   - directed tree
