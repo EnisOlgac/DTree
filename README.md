@@ -103,7 +103,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive: E. Olgac, *DTree: Directed Tree Library for Symbolic Structure*, Zenodo, 2026. doi: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710) (all versions; version 1.0.0: [10.5281/zenodo.23395711](https://doi.org/10.5281/zenodo.23395711)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree: Directed Tree Library for Symbolic Structure*, version 1.0.0, Zenodo, 2026. doi: [10.5281/zenodo.23395711](https://doi.org/10.5281/zenodo.23395711) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 
