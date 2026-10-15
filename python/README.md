@@ -62,6 +62,16 @@ python -m unittest discover -s tests
 
 Every operation is checked against a brute-force parent/children model on random trees, including random sequences of deletes and moves.
 
+## Benchmarks
+
+```
+python benchmarks/bench.py            # trees of 10,000 and 100,000 nodes
+python benchmarks/bench.py --quick    # a few seconds
+python benchmarks/bench.py 1000000    # custom sizes
+```
+
+The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+
 ## Provenance
 
 Design and API: Enis Olgac. This Python port was written with Claude (Anthropic) from the C# original and the API reference.

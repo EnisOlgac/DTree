@@ -69,6 +69,9 @@ class DList:
         self.first.next = self.last
         self.last.prev = self.first
         self._bits = _BITS
+        # Statistics: how often positions were renumbered and how many moved.
+        self.renumber_count = 0
+        self.renumber_moved = 0
         self.first.label = 0
         self.last.label = (1 << self._bits) - 1
 
@@ -101,10 +104,14 @@ class DList:
                 count += 1
             if count * _T ** i <= size:
                 self._spread(lo, count, start, size)
+                self.renumber_count += 1
+                self.renumber_moved += count
                 return
         # Whole universe too dense: double the number of label bits.
         self._bits *= 2
         n = len(self._cells)
+        self.renumber_count += 1
+        self.renumber_moved += n
         self._spread(self.first, n, 0, 1 << self._bits)
         self.last.label = (1 << self._bits) - 1
 

@@ -284,6 +284,8 @@ class TestNoSizeLimit(unittest.TestCase):
         self.assertEqual(t.depth("v5000"), 5000)
         self.assertTrue(t.can_reach("v0", "v5000"))
         self.assertFalse(t.can_reach("v5000", "v0"))
+        # growing a chain only appends at the list ends: no renumbering at all
+        self.assertEqual((t.Q1.renumber_count, t.Q2.renumber_count), (0, 0))
 
     def test_wide_node(self):
         t = DTree()
