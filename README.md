@@ -23,7 +23,7 @@ Inserting the edge (*u*, *v*) places *v* immediately after *u* in `Q2`, and at t
 
 `Q1` is the pre-order of a left-to-right depth-first traversal; `Q2` is the reversed post-order of the same traversal (equivalently, the pre-order with siblings right to left). That ancestry in a tree can be decided by comparing pre- and post-order positions is classical (Dietz, 1982). Maintaining positions in a list under insertions is the order-maintenance problem (Dietz & Sleator, 1987; Bender, Cole, Demaine, Farach-Colton & Zito, 2002); the Python implementation uses the latter scheme for its positions.
 
-What `DTree` contributes is maintaining both orderings incrementally with a priori known insertion points: a new child is always the last child of its parent in `Q1` (placed before the parent's delimiter) and the first child in `Q2` (placed directly after the parent). Every structural change is therefore local to both lists, and no traversal ever has to be recomputed.
+What `DTree` contributes (see the [paper](#paper)) is maintaining both orderings incrementally with a priori known insertion points: a new child is always the last child of its parent in `Q1` (placed before the parent's delimiter) and the first child in `Q2` (placed directly after the parent). Every structural change is therefore local to both lists, and no traversal ever has to be recomputed.
 
 - P. F. Dietz. Maintaining order in a linked list. *STOC 1982*, 122–127.
 - P. F. Dietz, D. D. Sleator. Two algorithms for maintaining order in a list. *STOC 1987*, 365–372.
@@ -92,9 +92,15 @@ DTree/
 └── README.md
 ```
 
+## Paper
+
+The method is described in:
+
+> E. Olgac, "Topology and Structure of Directed Trees: An Incremental Encoding," *Artificial Intelligence*. IntechOpen, Dec. 11, 2025. doi: [10.5772/intechopen.1013408](https://doi.org/10.5772/intechopen.1013408).
+
 ## Citing
 
-If you use `DTree` in academic work, please cite it using the metadata in [`CITATION.cff`](CITATION.cff) (GitHub shows a "Cite this repository" button in the sidebar).
+If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
 ## License
 
