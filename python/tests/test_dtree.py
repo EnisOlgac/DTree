@@ -81,11 +81,11 @@ class Reference:
 
 
 def labels_strictly_increase(q):
-    cell, prev = q.first.next, q.first.label
+    prev, cell = q.first, q.first.next
     while cell is not None:
-        if cell.label <= prev:
+        if not q._lt(prev, cell):
             return False
-        prev, cell = cell.label, cell.next
+        prev, cell = cell, cell.next
     return True
 
 
@@ -305,6 +305,58 @@ class TestNoSizeLimit(unittest.TestCase):
         self.assertTrue(labels_strictly_increase(q))
         self.assertEqual(q.to_list()[:2], ["l4999", "l4998"])
         self.assertEqual(q.to_list()[-2:], ["r4998", "r4999"])
+
+    def test_star_needs_no_renumbering(self):
+        t = DTree()
+        t.insert("r", "x")
+        t.insert("r", "y")
+        for i in range(5000):
+            t.insert("x", f"c{i}")  # star under an inner node: same gap every time
+        self.assertEqual((t.Q1.renumber_count, t.Q2.renumber_count), (0, 0))
+        self.assertTrue(t.can_reach("x", "c4999"))
+        self.assertFalse(t.can_reach("c0", "c1"))
+
+    def test_alternating_worst_case(self):
+        # always insert into the newer half of the last gap, alternating sides:
+        # mediant denominators grow like Fibonacci numbers and force renumbering
+        t = DTree()
+        left = "n0"
+        for i in range(1, 4000):
+            t.insert(left, f"n{i}")
+            if i % 2 == 0:
+                left = f"n{i}"
+        self.assertGreater(t.Q2.renumber_count, 0)
+        self.assertTrue(labels_strictly_increase(t._q1))
+        self.assertTrue(labels_strictly_increase(t._q2))
+        for q in (t._q1, t._q2):
+            self.assertTrue(all(c.den.bit_length() <= 64 for c in q._cells.values() if c.den))
+
+    def test_random_list_operations(self):
+        from dtree import DList
+        rnd = random.Random(7)
+        q, ref = DList("Q"), []
+        for i in range(20000):
+            r = rnd.random()
+            if ref and r < 0.15:
+                v = rnd.choice(ref)
+                q.remove(v)
+                ref.remove(v)
+                continue
+            name = f"v{i}"
+            if not ref or r < 0.25:
+                q.insert_after(name, SOURCE)
+                ref.insert(0, name)
+            else:
+                # hammer a few hot spots to force renumbering
+                j = rnd.choice([0, len(ref) // 2, len(ref) - 1, rnd.randrange(len(ref))])
+                if rnd.random() < 0.5:
+                    q.insert_after(name, ref[j])
+                    ref.insert(j + 1, name)
+                else:
+                    q.insert_before(name, ref[j])
+                    ref.insert(j, name)
+        self.assertEqual(q.to_list(), ref)
+        self.assertTrue(labels_strictly_increase(q))
 
     def test_adversarial_gaps(self):
         # alternate between the two most crowded gaps in Q2 and Q1

@@ -19,8 +19,8 @@ Update rules (taken from the C# original)
 ----------------------------------------
 * insert(u, v): v is placed immediately after u in Q2, and in Q1 immediately
   before the first node after u that u cannot reach (the end of u's subtree).
-  Insertion costs O(depth of the subtree below u) plus O(log n) amortized
-  relabeling.
+  Insertion costs O(depth of the subtree below u); positions of other nodes
+  normally stay unchanged.
 * delete(v): v is removed from both projections; its children move up to v's
   parent and keep their relative order (a cut-and-paste of v's children).
 * delete_subtree(v): the contiguous block of v's subtree is removed from both
@@ -28,38 +28,49 @@ Update rules (taken from the C# original)
 * cut_n_paste(u, p): the contiguous block of u's subtree is lifted out of both
   projections and re-inserted under p using the same rule as insert.
 
-Positions are integer labels maintained with the order-maintenance scheme of
-Bender, Cole, Demaine, Farach-Colton and Zito ("Two simplified algorithms for
-maintaining order in a list", ESA 2002): when two neighbors have no free label
-between them, only the smallest surrounding label range that is sparse enough
-is spread out again. This costs O(log n) amortized per insertion and imposes no
-depth or width limit.
+Positions are fractions. A new node gets the mediant (a+c)/(b+d) of its two
+neighbors a/b and c/d (the Stern-Brocot construction), which always lies
+strictly between them, so normally no other node moves. Rational positions
+were Enis Olgac's idea; repeated insertion into the same gap (a node with many
+children, appending at either end) then keeps positions at O(log n) bits. Only
+when a denominator would exceed 64 bits, which needs alternating insertions,
+is a small surrounding region renumbered with simple fractions k/2**32.
 """
 
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import Dict, Iterator, List, Optional
 
 SOURCE = "["
 SINK = "]"
 
-_BITS = 128  # initial label universe [0, 2**_BITS); doubled when it fills up
-_T = 1.5  # density parameter of the order-maintenance scheme (1 < T < 2)
-_STEP = 1 << 64  # initial gap: label step used when appending at either end of a list
+_Q = 1 << 32  # denominator used when a crowded region is renumbered
+_LIMIT = 64  # renumber when a denominator would exceed this many bits
+_SLACK = 16  # after renumbering, neighbors are at least this many 1/_Q apart
+_GROWTH = 2  # each doubling of the region raises the required spacing by this factor
 
 
 class _Cell:
-    __slots__ = ("name", "prev", "next", "label")
+    __slots__ = ("name", "prev", "next", "num", "den")
 
     def __init__(self, name: str) -> None:
         self.name = name
         self.prev: Optional[_Cell] = None
         self.next: Optional[_Cell] = None
-        self.label = 0
+        self.num = 0
+        self.den = 1
 
 
 class DList:
-    """Doubly linked list with order labels (O(1) precedence test)."""
+    """Doubly linked list with rational positions (O(1) precedence test).
+
+    Positions are fractions num/den. A new node gets the mediant
+    (a+c)/(b+d) of its neighbors a/b and c/d, which always lies strictly
+    between them; SOURCE and SINK act as -1/0 and +1/0. Nothing else moves.
+    Only when a denominator would exceed _LIMIT bits is a small surrounding
+    region renumbered with simple fractions k/_Q.
+    """
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -68,12 +79,11 @@ class DList:
         self.last = self._new(SINK)
         self.first.next = self.last
         self.last.prev = self.first
-        self._bits = _BITS
+        self.first.num, self.first.den = -1, 0  # -infinity
+        self.last.num, self.last.den = 1, 0  # +infinity
         # Statistics: how often positions were renumbered and how many moved.
         self.renumber_count = 0
         self.renumber_moved = 0
-        self.first.label = 0
-        self.last.label = (1 << self._bits) - 1
 
     # -- internals --------------------------------------------------------
     def _new(self, name: str) -> _Cell:
@@ -82,63 +92,72 @@ class DList:
         return cell
 
     @staticmethod
-    def _spread(lo: _Cell, count: int, start: int, size: int) -> None:
-        """Give count consecutive cells from lo evenly spaced labels in [start, start+size)."""
-        cell = lo
-        for j in range(count):
-            cell.label = start + (size * j) // count
-            cell = cell.next
-
-    def _rebalance(self, cell: _Cell) -> None:
-        """Spread the smallest aligned label range around cell that is sparse enough."""
-        lo = hi = cell
-        count, base = 1, cell.label
-        for i in range(1, self._bits + 1):
-            size = 1 << i
-            start = base & ~(size - 1)
-            while lo.prev is not None and lo.prev.label >= start:
-                lo = lo.prev
-                count += 1
-            while hi.next is not None and hi.next.label < start + size:
-                hi = hi.next
-                count += 1
-            if count * _T ** i <= size:
-                self._spread(lo, count, start, size)
-                self.renumber_count += 1
-                self.renumber_moved += count
-                return
-        # Whole universe too dense: double the number of label bits.
-        self._bits *= 2
-        n = len(self._cells)
-        self.renumber_count += 1
-        self.renumber_moved += n
-        self._spread(self.first, n, 0, 1 << self._bits)
-        self.last.label = (1 << self._bits) - 1
+    def _lt(x: _Cell, y: _Cell) -> bool:
+        """x lies strictly left of y, by comparing x.num/x.den with y.num/y.den."""
+        if x.den and y.den:
+            return x.num * y.den < y.num * x.den
+        if x.den == 0 and y.den == 0:
+            return x.num < y.num
+        return (x.num if x.den == 0 else 0) < (y.num if y.den == 0 else 0)
 
     def _link_after(self, cell: _Cell, prev: _Cell) -> None:
         nxt = prev.next
         cell.prev, cell.next = prev, nxt
         prev.next = cell
         nxt.prev = cell
-        gap = nxt.label - prev.label
-        if gap >= 2:
-            # Appending at either end takes a fixed step instead of the midpoint,
-            # so growing a list at its ends almost never needs renumbering.
-            # The first node goes to the middle of the range, so the list can grow
-            # equally far to the right (larger labels) and to the left (smaller
-            # labels). This is the signed-position idea (positives to the right,
-            # negatives to the left) with the range shifted to start at 0.
-            if prev is self.first and nxt is self.last:
-                cell.label = (prev.label + nxt.label) // 2
-            elif nxt is self.last:
-                cell.label = prev.label + min(gap // 2, _STEP)
-            elif prev is self.first:
-                cell.label = nxt.label - min(gap // 2, _STEP)
-            else:
-                cell.label = (prev.label + nxt.label) // 2
-        else:
-            cell.label = prev.label  # temporary duplicate, resolved by rebalancing
+        if prev is self.first and nxt is self.last:
+            cell.num, cell.den = 0, 1  # first node of an empty list
+            return
+        # Mediant of the neighbors. Next to SOURCE (-1/0) or SINK (+1/0) this
+        # steps by one whole unit, so a list can grow at either end forever
+        # without renumbering (positives to the right, negatives to the left).
+        cell.num = prev.num + nxt.num
+        cell.den = prev.den + nxt.den
+        if cell.den.bit_length() > _LIMIT:
             self._rebalance(cell)
+
+    def _rebalance(self, cell: _Cell) -> None:
+        """Renumber the smallest region around ``cell`` that has room, using fractions k/_Q."""
+        q = _Q
+        lo = hi = cell
+        m, k, need = 1, 1, _SLACK
+        while True:
+            for _ in range(k):
+                if lo.prev is not self.first:
+                    lo = lo.prev
+                    m += 1
+                if hi.next is not self.last:
+                    hi = hi.next
+                    m += 1
+            left, right = lo.prev, hi.next
+            if left is self.first and right is self.last:
+                ks = [(j - m // 2) * q for j in range(m)]
+                break
+            if left is self.first:
+                top = -((-right.num * q) // right.den)  # ceil(right * q)
+                ks = [top - (m - j) * q for j in range(m)]
+                break
+            if right is self.last:
+                bottom = (left.num * q) // left.den  # floor(left * q)
+                ks = [bottom + (j + 1) * q for j in range(m)]
+                break
+            bottom = (left.num * q) // left.den
+            top = -((-right.num * q) // right.den)
+            room = top - bottom - 1  # integers k with left < k/q < right
+            if room >= m * need:
+                ks = [bottom + ((j + 1) * (room + 1)) // (m + 1) for j in range(m)]
+                break
+            # Larger regions must be sparser before they are accepted (as in
+            # Bender et al.), so a renumbered region keeps spare room and the
+            # next overflow nearby can again be handled locally.
+            k *= 2
+            need *= _GROWTH
+        c = lo
+        for kv in ks:
+            c.num, c.den = kv, q
+            c = c.next
+        self.renumber_count += 1
+        self.renumber_moved += m
 
     def _unlink(self, cell: _Cell) -> None:
         cell.prev.next = cell.next
@@ -160,13 +179,16 @@ class DList:
     def sink(self) -> str:
         return self.last.name
 
-    def label(self, name: str) -> int:
-        return self._cells[name].label
-
-    def index(self, name: str) -> Optional[int]:
-        """Position label of ``name``, or None if it is not in the list (List.cs: Index)."""
+    def index(self, name: str):
+        """Position of ``name`` as a Fraction (SOURCE/SINK: -inf/+inf), or None if absent (List.cs: Index)."""
         cell = self._cells.get(name)
-        return cell.label if cell else None
+        if cell is None:
+            return None
+        if cell.den == 0:
+            return float("inf") if cell.num > 0 else float("-inf")
+        return Fraction(cell.num, cell.den)
+
+    label = index
 
     def is_allocated(self, name: str) -> bool:
         return name in self._cells
@@ -183,20 +205,23 @@ class DList:
         return prv.name if prv else None
 
     def is_left_of(self, v: str, u: str) -> bool:
-        return self._cells[v].label < self._cells[u].label
+        return self._lt(self._cells[v], self._cells[u])
 
     def is_self_or_left_of(self, v: str, u: str) -> bool:
-        return self._cells[v].label <= self._cells[u].label
+        return v == u or self._lt(self._cells[v], self._cells[u])
 
     def is_right_of(self, v: str, u: str) -> bool:
-        return self._cells[v].label > self._cells[u].label
+        return self._lt(self._cells[u], self._cells[v])
 
     def is_self_or_right_of(self, v: str, u: str) -> bool:
-        return self._cells[v].label >= self._cells[u].label
+        return v == u or self._lt(self._cells[u], self._cells[v])
 
     def precedes(self, u: str, v: str) -> bool:
         """Strict order: u lies left of v (same as is_left_of)."""
-        return self._cells[u].label < self._cells[v].label
+        x, y = self._cells[u], self._cells[v]
+        if x.den and y.den:
+            return x.num * y.den < y.num * x.den
+        return self._lt(x, y)
 
     def _cell_for(self, name: str) -> _Cell:
         """Existing cell (unlinked first, so it is moved) or a new one."""

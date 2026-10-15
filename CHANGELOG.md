@@ -1,0 +1,28 @@
+# Changelog
+
+## 1.1.0
+
+**Rational positions in `DList`** (Python). Positions in Q1 and Q2 are now fractions. A new node gets the mediant (a+c)/(b+d) of its two neighbors, so inserting normally moves no other node. Rational positions were Enis Olgac's idea; the mediant construction, the fallback renumbering and the measurements were done with Claude (Anthropic).
+
+Benchmark (`python benchmarks/bench.py 10000 100000`, trees of 100,000 nodes, same machine):
+
+| shape | renumberings Q1 / Q2, 1.0.0 | renumberings Q1 / Q2, 1.1.0 | positions moved per insertion, 1.0.0 → 1.1.0 |
+| --- | ---: | ---: | ---: |
+| random | 0 / 0 | 0 / 0 | 0 → 0 |
+| chain | 0 / 0 | 0 / 0 | 0 → 0 |
+| star (root) | 0 / 13,764 | 0 / 0 | 5.53 → 0 |
+| star (inner node) | 13,035 / 13,763 | 0 / 0 | 10.78 → 0 |
+| alternating (worst case) | 0 / 13,072 | 0 / 2,172 | 5.84 → 3.83 |
+
+Largest numerator or denominator at 100,000 nodes: 17–18 bits for chains and stars, 35 bits for random trees, 60 bits for the alternating worst case. `can_reach` costs about the same (2.5 → 2.7 µs per call; two multiplications instead of one integer comparison).
+
+Other changes since 1.0.0:
+
+- `DList.index(v)` returns a `Fraction` (SOURCE and SINK: −∞ and +∞).
+- `python/benchmarks/bench.py`, with an alternating worst-case shape, and the counters `DList.renumber_count` and `DList.renumber_moved`.
+- New tests: stars without renumbering, the alternating worst case, and 20,000 random list operations against a plain Python list.
+- README: Zenodo DOIs, paper reference, background on positions.
+
+## 1.0.0
+
+First public release: Python implementation (insert, delete, delete_subtree, cut_n_paste, queries), C# prototype with WPF viewer, API reference. Archived on Zenodo: doi:10.5281/zenodo.23395711.

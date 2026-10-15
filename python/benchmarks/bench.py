@@ -27,6 +27,8 @@ SHAPES = {
     "chain": lambda i, names, rnd: names[-1],
     "star (root)": lambda i, names, rnd: "n0",
     "star (inner node)": lambda i, names, rnd: "n1",
+    # worst case for rational positions: always the newer half-gap, alternating sides
+    "alternating": lambda i, names, rnd: f"n{2 * ((i - 1) // 2)}",
 }
 
 

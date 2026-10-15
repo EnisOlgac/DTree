@@ -52,7 +52,7 @@ t = DTree.from_file("../examples/Test.csx")
 - `delete(v)` re-attaches v's children to v's parent, in v's place among its siblings.
 - `delete_subtree(v)` removes v with all its descendants and returns them in Q1 order.
 - `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
-- Projection positions are integer labels with automatic relabeling, so tree depth and width are unbounded.
+- Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Only rare alternating insertion patterns trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
 
 ## Tests
 
@@ -70,7 +70,7 @@ python benchmarks/bench.py --quick    # a few seconds
 python benchmarks/bench.py 1000000    # custom sizes
 ```
 
-The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
 
 ## Provenance
 
