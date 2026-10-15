@@ -1,4 +1,4 @@
-# DTree—Directed Tree Library for Symbolic Structure
+# DTree—Topology and Structure of Directed Trees: An Incremental Encoding
 
 [![build](https://github.com/EnisOlgac/DTree/actions/workflows/build.yml/badge.svg)](https://github.com/EnisOlgac/DTree/actions/workflows/build.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23395710.svg)](https://doi.org/10.5281/zenodo.23395710)
@@ -70,9 +70,28 @@ cd python
 python -m unittest discover -s tests
 ```
 
+## C# Implementation
+
+[`src/DTree.Core/`](src/DTree.Core/) is a C# (.NET 9) port of the Python implementation with the same API in C# naming: `Insert`, `Delete`, `DeleteSubtree`, `CutNPaste`, `CanReach`, `PathToRoot`, `Depth`, …, and `Q1`/`Q2` as `DList` projections with rational positions. Its test program checks every query against a brute-force model, as the Python tests do:
+
+```
+dotnet run --project src/DTree.Tests -c Release            # tests
+dotnet run --project src/DTree.Tests -c Release -- bench   # benchmarks
+```
+
+```csharp
+using DirectedTrees;
+
+var t = new DTree("P1");
+t.Insert("A", "B");
+t.Insert("B", "C");
+t.CanReach("A", "C");   // true
+t.PathToRoot("C");      // ["C", "B", "A"]
+```
+
 ## C# Prototype
 
-[`src/`](src/) contains the original C# implementation (`Tree` library, .NET 9) and `Tree.View`, a WPF viewer that draws a tree from a `.csx` file (Windows only). Insertion and the `Q1`/`Q2` projections work as described above. Known issues in the prototype:
+[`src/Tree/`](src/Tree/) is the original C# implementation (.NET 9), and [`src/Tree.View/`](src/Tree.View/) a WPF viewer that draws a tree from a `.csx` file (Windows only). Insertion and the `Q1`/`Q2` projections work as described above. Known issues in the prototype:
 
 - `CutNPaste` and `Delete` are not yet implemented.
 - `Root`, `PathToRoot`, `RootPathTo`, `Depth`, `IsAncestor`, `IsDescendant` and `SameSubtree` do not yet match the API reference.
@@ -89,7 +108,8 @@ python -m unittest discover -s tests
 ```
 DTree/
 ├── python/         Python implementation with tests
-├── src/            C# prototype (Tree library, Tree.View WPF viewer)
+├── src/            C# implementation (DTree.Core, DTree.Tests) and the original
+│                   prototype (Tree library, Tree.View WPF viewer)
 ├── examples/       sample trees (.csx: "parent: child1; child2")
 ├── docs/           API reference (Markdown, PDF, LaTeX sources)
 ├── CITATION.cff    citation metadata
@@ -107,7 +127,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive: E. Olgac, *DTree: Directed Tree Library for Symbolic Structure*, version 1.1.0, Zenodo, 2026. doi: [10.5281/zenodo.23397159](https://doi.org/10.5281/zenodo.23397159) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.1.0, Zenodo, 2026. doi: [10.5281/zenodo.23397159](https://doi.org/10.5281/zenodo.23397159) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 

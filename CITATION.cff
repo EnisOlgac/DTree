@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "DTree: Directed Tree Library for Symbolic Structure"
+title: "DTree—Topology and Structure of Directed Trees: An Incremental Encoding"
 type: software
 authors:
   - family-names: Olgac
