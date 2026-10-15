@@ -2,6 +2,8 @@
 
 ## 1.1.0
 
+Archived on Zenodo: doi:10.5281/zenodo.23397159.
+
 **Rational positions in `DList`** (Python). Positions in Q1 and Q2 are now fractions. A new node gets the mediant (a+c)/(b+d) of its two neighbors, so inserting normally moves no other node. Rational positions were Enis Olgac's idea; the mediant construction, the fallback renumbering and the measurements were done with Claude (Anthropic).
 
 Benchmark (`python benchmarks/bench.py 10000 100000`, trees of 100,000 nodes, same machine):
