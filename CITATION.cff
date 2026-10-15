@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "DTree: Directed Tree Library for Symbolic Structure"
+type: software
+authors:
+  - family-names: Olgac
+    given-names: Enis
+    email: enis@digraphs.info
+    orcid: "https://orcid.org/0009-0009-7560-6107"
+repository-code: "https://github.com/EnisOlgac/DTree"
+license: MIT
+version: "1.0.0"
+date-released: "2026-10-15"
+keywords:
+  - directed tree
+  - reachability
+  - dual projection
+  - graph theory
+  - Python
+  - C#
+abstract: >-
+  DTree is a minimal library for single-rooted directed trees whose
+  structure is encoded by two linear projections, Q1 and Q2. Node u
+  reaches node v if and only if u strictly precedes v in both projections.
+  The reference implementation (Python) supports edge insertion, deletion,
+  subtree moves (cut_n_paste), and path-based queries; a C# prototype is
+  included.
