@@ -40,7 +40,32 @@ Positions are fractions, an idea of the author. A new node gets the *mediant* (a
 - Reachability check in O(1) via positions in `Q1` and `Q2`
 - Dynamic operations: `insert`, `delete` (children move up), `delete_subtree`, `cut_n_paste` (move a subtree)
 - Structural queries: ancestry, depth, paths, subtrees
+- Set queries in O(1) or O(log k) via constructed nodes VMin, VMax, UMin and UMax (see below)
 - No limit on tree depth or width
+
+## Set Queries
+
+Questions about a set of nodes *S* reduce to comparisons with a *constructed node*, an idea of the author (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum or the maximum of each index over *S*, taken separately in `Q1` and `Q2`. The two values usually come from two different members, so the constructed node is no real node, but it is compared like one. Its name says which role *S* plays in `can_reach(u, v)`: *V* when *S* is the target, *U* when *S* is the source.
+
+| question | constructed node | test | exact? |
+| --- | --- | --- | --- |
+| *u* reaches all of *S* | VMin | *u* left of VMin in both lists | yes, O(1) |
+| *u* reaches some of *S* | VMax | *u* left of VMax in both lists | necessary only; exact in O(log k) |
+| all of *S* reach *v* | UMax | *v* right of UMax in both lists | yes, O(1) |
+| some of *S* reach *v* | UMin | *v* right of UMin in both lists | necessary only; exact in O(log k) |
+
+For the two "some" questions the constructed node only rejects quickly. The exact answers use the order of the members in `Q1`: the subtree of *u* is the block directly after *u* in `Q1`, so *u* reaches some member exactly when the first member after *u* does; and *v* is reached by some member exactly when the last *topmost* member before *v* (one with no ancestor in *S*) reaches it.
+
+```python
+t.insert("A", "D")             # the Quick Start tree, plus D under A
+t.vmin(["C", "D"]).reaches_all("A")        # True: A reaches C and D
+t.vmin(["C", "D"]).reaches_all("B")        # False: B reaches C only
+t.vmax(["C", "D"]).reaches_some("B")       # True
+t.umax(["A", "B"]).reached_by_all("C")     # True: A and B both reach C
+t.umin(["B", "D"]).reached_by_some("C")    # True: B reaches C
+```
+
+In C#: `t.VMin(nodes).ReachesAll(u)`, `t.VMax(nodes).ReachesSome(u)`, `t.UMax(nodes).ReachedByAll(v)`, `t.UMin(nodes).ReachedBySome(v)`, with names or node handles; `MayReachSome` and `MayBeReachedBySome` are the O(1) filters. A constructed node stores its members, not positions; since insertions keep the order of existing nodes, it stays valid while the tree grows, and after a deletion or a move it is recomputed on its next use. A classical tree with parent and child links answers the same questions by climbing towards the root. See [`docs/set-queries.md`](docs/set-queries.md).
 
 ## Quick Start (Python)
 
@@ -103,6 +128,7 @@ The author's original C# prototype (with the WPF viewer on top of it) is include
 ## Documentation
 
 - [API reference (Markdown)](docs/API.md)
+- [Set queries with constructed nodes](docs/set-queries.md)—with a comparison to classical doubly linked trees
 - [API reference (PDF)](docs/User.Doc.pdf)—LaTeX source: [`docs/User.Doc.tex`](docs/User.Doc.tex)
 
 ## Repository Layout
@@ -129,7 +155,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.3.0, Zenodo, 2026. doi: [10.5281/zenodo.23414463](https://doi.org/10.5281/zenodo.23414463) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.4.0, Zenodo, 2026 (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 

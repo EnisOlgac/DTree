@@ -8,6 +8,8 @@ Usage (from the python/ folder):
 
 For each tree shape it reports the build time and how often positions in Q1
 and Q2 had to be renumbered, then times the queries and structural changes.
+Finally it compares reachability with the parent walk of classical doubly linked
+trees, for single pairs and for set queries (VMin, VMax, UMin, UMax), over increasing depth.
 Timings depend on the machine; the renumbering counts do not.
 """
 
@@ -125,6 +127,92 @@ def bench_operations(n, queries=1_000_000):
     timed("delete_subtree", len(parents), lambda: [t.delete_subtree(v) for v in parents if t.contains(v) and not t.is_root(v)])
 
 
+def build_with_depth(n, depth, seed=1):
+    """A spine (chain) of `depth` nodes; all other nodes hang at random under spine nodes."""
+    rnd = random.Random(seed)
+    t, names = DTree("D"), ["n0"]
+    for i in range(1, n):
+        if i < depth:
+            parent = names[-1]                       # extend the spine
+        else:
+            parent = names[rnd.randrange(min(depth, len(names)))]
+        t.insert(parent, f"n{i}")
+        names.append(f"n{i}")
+    return t, names
+
+
+def parent_walk(parent, u, v):
+    """What classical doubly linked trees do: climb from v towards the root, looking for u."""
+    w = parent.get(v)
+    while w is not None:
+        if w == u:
+            return True
+        w = parent.get(w)
+    return False
+
+
+def ancestors_in(parent, v, members):
+    """Climb once from v towards the root and count the ancestors of v that lie in members."""
+    hits, w = 0, parent.get(v)
+    while w is not None:
+        if w in members:
+            hits += 1
+        w = parent.get(w)
+    return hits
+
+
+def bench_depth(n, depths, queries):
+    print(f"\n### Reachability by depth: DTree vs parent walk ({n:,} nodes, {queries:,} random pairs)\n")
+    row("depth", "DTree [µs]", "parent walk [µs]", "factor")
+    row("---:", "---:", "---:", "---:")
+    for depth in depths:
+        t, names = build_with_depth(n, depth)
+        parent = t._parent
+        rnd = random.Random(2)
+        pairs = [(rnd.choice(names), rnd.choice(names)) for _ in range(queries)]
+        start = time.perf_counter()
+        a = [t.can_reach(u, v) for u, v in pairs]
+        d = time.perf_counter() - start
+        start = time.perf_counter()
+        b = [parent_walk(parent, u, v) for u, v in pairs]
+        w = time.perf_counter() - start
+        assert a == b
+        row(f"{depth:,}", f"{d / queries * 1e6:.2f}", f"{w / queries * 1e6:.2f}", f"{w / d:,.1f}×")
+
+
+def bench_sets(n, depths, k, queries):
+    print(f"\n### Set queries: constructed nodes vs parent walk ({n:,} nodes, set of {k:,} nodes, {queries:,} query nodes)\n")
+    row("depth", "question", "DTree [µs]", "parent walk [µs]", "factor")
+    row("---:", "---", "---:", "---:", "---:")
+    for depth in depths:
+        t, names = build_with_depth(n, depth)
+        parent = t._parent
+        rnd = random.Random(4)
+        S = rnd.sample(names, k)
+        U = [rnd.choice(names) for _ in range(queries)]
+        start = time.perf_counter()
+        vmin, vmax, umin, umax = t.vmin(S), t.vmax(S), t.umin(S), t.umax(S)
+        build = time.perf_counter() - start
+        members = set(S)
+        # "reaches": climb from every member looking for u. "reached by": climb once from u,
+        # looking each ancestor up in a hash set of the members (the best a parent walk can do).
+        for name, v_q, walk_q in (
+            ("reaches all", vmin.reaches_all, lambda u: all(parent_walk(parent, u, v) for v in S)),
+            ("reaches some", vmax.reaches_some, lambda u: any(parent_walk(parent, u, v) for v in S)),
+            ("reached by all", umax.reached_by_all, lambda u: ancestors_in(parent, u, members) == len(members)),
+            ("reached by some", umin.reached_by_some, lambda u: ancestors_in(parent, u, members) > 0),
+        ):
+            start = time.perf_counter()
+            a = [v_q(u) for u in U]
+            d = time.perf_counter() - start
+            start = time.perf_counter()
+            b = [walk_q(u) for u in U]
+            w = time.perf_counter() - start
+            assert a == b, name
+            row(f"{depth:,}", name, f"{d / queries * 1e6:.2f}", f"{w / queries * 1e6:.1f}", f"{w / d:.1f}×" if w < 10 * d else f"{w / d:,.0f}×")
+    print(f"\n(Building VMin, VMax, UMin and UMax for {k:,} nodes: {build * 1e3:.1f} ms, once per set.)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sizes", nargs="*", type=int, help="tree sizes (default: 10000 100000)")
@@ -135,6 +223,12 @@ def main():
     bench_build(sizes)
     bench_lists(sizes)
     bench_operations(max(sizes), queries=100_000 if args.quick else 1_000_000)
+    if args.quick:
+        bench_depth(10_000, [10, 100, 1_000, 10_000], 20_000)
+        bench_sets(10_000, [10, 100, 1_000], 100, 200)
+    else:
+        bench_depth(100_000, [10, 100, 1_000, 10_000, 100_000], 20_000)
+        bench_sets(100_000, [10, 100, 1_000, 10_000], 1_000, 200)
 
 
 if __name__ == "__main__":

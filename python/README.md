@@ -44,6 +44,9 @@ t = DTree.from_file("../examples/Test.csx")
 | `SameSubtree`, `SubtreeSize` | `same_subtree`, `subtree_size` (plus `subtree`) |
 | `Depth` | `depth` (root = 0) |
 | `PathToRoot`, `RootToPath` | `path_to_root`, `root_to_path` (plus `path(u, v)`) |
+| `VMin`, `VMax`, `UMin`, `UMax` (of nodes) | `vmin`, `vmax`, `umin`, `umax` |
+| `ReachesAll`, `MayReachSome`, `ReachesSome` | `reaches_all`, `may_reach_some`, `reaches_some` |
+| `ReachedByAll`, `MayBeReachedBySome`, `ReachedBySome` | `reached_by_all`, `may_be_reached_by_some`, `reached_by_some` |
 
 ## Semantics
 
@@ -52,6 +55,7 @@ t = DTree.from_file("../examples/Test.csx")
 - `delete(v)` re-attaches v's children to v's parent, in v's place among its siblings.
 - `delete_subtree(v)` removes v with all its descendants and returns them in Q1 order.
 - `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
+- The constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [`../docs/set-queries.md`](../docs/set-queries.md).
 - Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Only rare alternating insertion patterns trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
 
 ## Tests
@@ -70,7 +74,7 @@ python benchmarks/bench.py --quick    # a few seconds
 python benchmarks/bench.py 1000000    # custom sizes
 ```
 
-The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and set queries with constructed nodes. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
 
 ## Provenance
 

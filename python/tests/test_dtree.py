@@ -241,6 +241,108 @@ class TestDList(unittest.TestCase):
         self.assertFalse(q.is_same_as(r))
 
 
+class TestVNodes(unittest.TestCase):
+    """Set queries with constructed nodes (Olgac 2021), checked against brute force."""
+
+    def check_vnodes(self, t, S, vmin=None, vmax=None, umin=None, umax=None):
+        vmin = vmin or t.vmin(S)
+        vmax = vmax or t.vmax(S)
+        umin = umin or t.umin(S)
+        umax = umax or t.umax(S)
+        for u in t.nodes:
+            self.assertEqual(vmin.reaches_all(u), all(t.can_reach(u, v) for v in S), (u, S))
+            self.assertEqual(umax.reached_by_all(u), all(t.can_reach(v, u) for v in S), (u, S))
+            some = any(t.can_reach(u, v) for v in S)
+            self.assertEqual(vmax.reaches_some(u), some, (u, S))
+            if some:
+                self.assertTrue(vmax.may_reach_some(u), (u, S))  # never rejects a true case
+            by_some = any(t.can_reach(v, u) for v in S)
+            self.assertEqual(umin.reached_by_some(u), by_some, (u, S))
+            if by_some:
+                self.assertTrue(umin.may_be_reached_by_some(u), (u, S))
+
+    def test_counterexample_for_reached_by_some(self):
+        t = DTree()
+        for v in ("a", "m", "b"):
+            t.insert("r", v)
+        umin = t.umin(["a", "b"])
+        self.assertEqual(umin.index_nodes, ("a", "b"))     # (1, 1) from two nodes
+        self.assertTrue(umin.may_be_reached_by_some("m"))  # m = (2, 2) passes the filter ...
+        self.assertFalse(umin.reached_by_some("m"))        # ... but neither a nor b reaches it
+
+    def test_reached_by_some_with_nested_members(self):
+        # s1 is an ancestor of v; s2 lies inside s1's subtree, left of v, and is the last
+        # member before v in Q1. Only the topmost members may be searched.
+        t = DTree()
+        for u, v in [("r", "s1"), ("s1", "s2"), ("s1", "v"), ("r", "w")]:
+            t.insert(u, v)
+        umin = t.umin(["s2", "s1"])
+        self.assertTrue(umin.reached_by_some("v"))
+        self.assertTrue(umin.reached_by_some("s2"))
+        self.assertFalse(umin.reached_by_some("w"))
+        self.assertFalse(umin.reached_by_some("s1"))
+        self.check_vnodes(t, ["s2", "s1"])
+
+    def test_counterexample_for_some(self):
+        t = DTree()
+        for u, v in [("r", "n1"), ("n1", "n2"), ("r", "n3"), ("n2", "n4"),
+                     ("n4", "n5"), ("n3", "n6"), ("n3", "n7")]:
+            t.insert(u, v)
+        up = t.vmax(["n1", "n7"])
+        self.assertEqual(up.index_nodes, ("n7", "n1"))  # two different nodes
+        self.assertTrue(up.may_reach_some("n6"))          # passes the filter ...
+        self.assertFalse(up.reaches_some("n6"))           # ... but reaches neither
+
+    def test_random_sets(self):
+        for seed in range(20):
+            t, ref, rnd = random_tree(80, seed)
+            for k in (1, 2, 3, 8, 25):
+                self.check_vnodes(t, rnd.sample(t.nodes, k))
+
+    def test_empty_set(self):
+        t = DTree()
+        t.insert("a", "b")
+        self.assertTrue(t.vmin().reaches_all("a"))
+        self.assertTrue(t.umax().reached_by_all("b"))
+        self.assertFalse(t.vmax().reaches_some("a"))
+        self.assertFalse(t.umin().reached_by_some("b"))
+
+    def test_vnode_survives_changes(self):
+        for seed in range(10):
+            t, ref, rnd = random_tree(60, seed)
+            S = rnd.sample(t.nodes[1:], 5)
+            v_s = dict(vmin=t.vmin(S), vmax=t.vmax(S), umin=t.umin(S), umax=t.umax(S))
+            n = 60
+            for step in range(40):
+                r = rnd.random()
+                nodes = t.nodes
+                if r < 0.5:
+                    t.insert(rnd.choice(nodes), f"x{n}")
+                    n += 1
+                elif r < 0.65:
+                    t.delete(rnd.choice(nodes[1:]))
+                elif r < 0.75:
+                    t.delete_subtree(rnd.choice(nodes[1:]))
+                else:
+                    u = rnd.choice(nodes[1:])
+                    banned = set(t.subtree(u))
+                    p = rnd.choice([w for w in nodes if w not in banned])
+                    t.cut_n_paste(u, p)
+                live = [v for v in S if t.contains(v)]
+                self.check_vnodes(t, live, **v_s)
+                self.assertEqual(sorted(v_s["umin"].members), sorted(live))
+
+    def test_incremental_add(self):
+        t, ref, rnd = random_tree(100, 3)
+        v_s = dict(vmin=t.vmin(), vmax=t.vmax(), umin=t.umin(), umax=t.umax())
+        S = []
+        for v in rnd.sample(t.nodes, 15):
+            for x in v_s.values():
+                x.add(v)
+            S.append(v)
+            self.check_vnodes(t, S, **v_s)
+
+
 class TestAgainstReference(unittest.TestCase):
     def test_random_inserts(self):
         for seed in range(30):

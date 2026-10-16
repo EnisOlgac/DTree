@@ -40,7 +40,7 @@ is a small surrounding region renumbered with simple fractions k/2**32.
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterable, Iterator, List, Optional
 
 SOURCE = "["
 SINK = "]"
@@ -306,6 +306,7 @@ class DTree:
         self._q1 = DList(f"{tree_id}.Q1")
         self._q2 = DList(f"{tree_id}.Q2")
         self.edge_log: List[str] = []
+        self._reshapes = 0  # counts deletions and moves; insertions keep the order of existing nodes
 
     # -- construction ------------------------------------------------------
     @classmethod
@@ -388,6 +389,7 @@ class DTree:
             del self._children[parent]
         self._q1.remove(node)
         self._q2.remove(node)
+        self._reshapes += 1
 
     def delete_subtree(self, node: str) -> List[str]:
         """Remove ``node`` together with all its descendants.
@@ -409,6 +411,7 @@ class DTree:
         for v in removed:
             del self._parent[v]
             self._children.pop(v, None)
+        self._reshapes += 1
         return removed
 
     def cut_n_paste(self, subtree_root: str, new_parent: str) -> None:
@@ -439,6 +442,7 @@ class DTree:
         self._q2.paste_block_after(block2, new_parent)
         self._q1.paste_block_after(block1, last)
         self._parent[u] = new_parent
+        self._reshapes += 1
         self._children.setdefault(new_parent, []).append(u)
 
     # -- accessors --------------------------------------------------------
@@ -582,6 +586,254 @@ class DTree:
         return len(self.path_to_root(node)) - 1
 
     # -- helpers ----------------------------------------------------------
+    # -- set queries ------------------------------------------------------
+    def vmin(self, nodes: Iterable[str] = ()) -> "VMin":
+        """Constructed node VMin: the minimum of each index over the nodes (see VMin)."""
+        return VMin(self, nodes)
+
+    def vmax(self, nodes: Iterable[str] = ()) -> "VMax":
+        """Constructed node VMax: the maximum of each index over the nodes (see VMax)."""
+        return VMax(self, nodes)
+
+    def umin(self, nodes: Iterable[str] = ()) -> "UMin":
+        """Constructed node UMin: the minimum of each index over the nodes (see UMin)."""
+        return UMin(self, nodes)
+
+    def umax(self, nodes: Iterable[str] = ()) -> "UMax":
+        """Constructed node UMax: the maximum of each index over the nodes (see UMax)."""
+        return UMax(self, nodes)
+
     def _require(self, node: str) -> None:
         if node not in self._parent:
             raise KeyError(f"node {node!r} is not in the tree")
+
+
+class _VNode:
+    """A constructed node for a set S of tree nodes (E. Olgac, "Topology and Structure of
+    Directed Graphs - Inducing a Subgraph", 2021): the minimum (VMin, UMin) or maximum
+    (VMax, UMax) of each index over S. V means S takes the target role, can_reach(u, S),
+    and U the source role, can_reach(S, v); UMin and VMin hold the same numbers.
+
+    It stores no positions, only the members and, for each of Q1 and Q2, the member holding
+    the minimal (or maximal) index there; the two may be different nodes, so the constructed
+    node usually corresponds to no real node. Insertions and renumbering keep the order of
+    existing nodes, so it stays valid while the tree grows. After a deletion or a cut_n_paste it is
+    recomputed from the remaining members on its next use.
+    """
+
+    _lowest = True  # VMin keeps the leftmost member, VMax the rightmost
+
+    def __init__(self, tree: "DTree", nodes: Iterable[str] = ()) -> None:
+        self._t = tree
+        self._members: List[str] = []    # in Q1 order
+        self._seen: set = set()
+        self._c1: Optional[str] = None
+        self._c2: Optional[str] = None
+        self._reshapes = tree._reshapes
+        for v in nodes:
+            self.add(v)
+
+    def _better(self, q: DList, v: str, c: Optional[str]) -> bool:
+        if c is None:
+            return True
+        return q.precedes(v, c) if self._lowest else q.precedes(c, v)
+
+    def add(self, node: str) -> "_VNode":
+        """Add a node of the tree to the set; returns the constructed node itself."""
+        self._t._require(node)
+        if node in self._seen:
+            return self
+        self._check()
+        self._seen.add(node)
+        q1 = self._t._q1
+        lo, hi = 0, len(self._members)       # keep members sorted by Q1 order
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if q1.precedes(node, self._members[mid]):
+                hi = mid
+            else:
+                lo = mid + 1
+        self._members.insert(lo, node)
+        if self._better(self._t._q1, node, self._c1):
+            self._c1 = node
+        if self._better(self._t._q2, node, self._c2):
+            self._c2 = node
+        self._added(node)
+        return self
+
+    def _added(self, node: str) -> None:
+        """Hook for subclasses that keep more than the index nodes."""
+
+    def _rebuilt(self) -> None:
+        """Hook for subclasses that keep more than the index nodes."""
+
+    def refresh(self) -> None:
+        """Drop deleted members and recompute the index nodes."""
+        t = self._t
+        q1 = t._q1
+        self._members = sorted((v for v in self._members if t.contains(v)),
+                               key=lambda v: q1.index(v))
+        self._seen = set(self._members)
+        self._c1 = self._c2 = None
+        for v in self._members:
+            if self._better(t._q1, v, self._c1):
+                self._c1 = v
+            if self._better(t._q2, v, self._c2):
+                self._c2 = v
+        self._reshapes = t._reshapes
+        self._rebuilt()
+
+    def _check(self) -> None:
+        t = self._t
+        if self._reshapes != t._reshapes:
+            self.refresh()
+
+    @property
+    def members(self) -> List[str]:
+        self._check()
+        return list(self._members)
+
+    @property
+    def index_nodes(self) -> tuple:
+        """The members holding the minimal (VMin, UMin) or maximal (VMax, UMax) index in Q1 and in Q2 (possibly two different nodes)."""
+        self._check()
+        return self._c1, self._c2
+
+    def __len__(self) -> int:
+        self._check()
+        return len(self._members)
+
+
+class VMin(_VNode):
+    """S in the target role, can_reach(u, S). Minimum of each index over a node set: u reaches all of the set exactly when u lies
+    strictly left of VMin in both Q1 and Q2."""
+
+    _lowest = True
+
+    def reaches_all(self, u: str) -> bool:
+        """True if u reaches every node of the set (vacuously True for an empty set)."""
+        self._check()
+        t = self._t
+        if not t.contains(u):
+            return False
+        if self._c1 is None:
+            return True
+        return t._q1.precedes(u, self._c1) and t._q2.precedes(u, self._c2)
+
+
+class VMax(_VNode):
+    """S in the target role, can_reach(u, S). Maximum of each index over a node set: lying
+    strictly left of VMax in both Q1 and Q2 is necessary for u to reach some of the set, but
+    not sufficient, so may_reach_some is only a filter; reaches_some is exact."""
+
+    _lowest = False
+
+    def may_reach_some(self, u: str) -> bool:
+        """Fast rejection: False means u reaches no node of the set. True is not a confirmation."""
+        self._check()
+        t = self._t
+        if self._c1 is None or not t.contains(u):
+            return False
+        return t._q1.precedes(u, self._c1) and t._q2.precedes(u, self._c2)
+
+    def reaches_some(self, u: str) -> bool:
+        """True if u reaches at least one node of the set (exact).
+
+        The subtree of u is the block directly after u in Q1, so u reaches some member
+        exactly when the first member after u in Q1 lies in it: a binary search over the
+        members (kept in Q1 order) and one reachability test.
+        """
+        if not self.may_reach_some(u):
+            return False
+        t, m = self._t, self._members
+        q1 = t._q1
+        lo, hi = 0, len(m)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if q1.precedes(u, m[mid]):
+                hi = mid
+            else:
+                lo = mid + 1
+        return lo < len(m) and t.can_reach(u, m[lo])
+
+
+class UMax(_VNode):
+    """S in the source role, can_reach(S, v). Maximum of each index over a node set: v is
+    reached by all of the set exactly when v lies strictly right of UMax in both Q1 and Q2."""
+
+    _lowest = False
+
+    def reached_by_all(self, v: str) -> bool:
+        """True if every node of the set reaches v (vacuously True for an empty set)."""
+        self._check()
+        t = self._t
+        if not t.contains(v):
+            return False
+        if self._c1 is None:
+            return True
+        return t._q1.precedes(self._c1, v) and t._q2.precedes(self._c2, v)
+
+
+class UMin(_VNode):
+    """S in the source role, can_reach(S, v). Minimum of each index over a node set: lying
+    strictly right of UMin in both Q1 and Q2 is necessary for v to be reached by some of the
+    set, but not sufficient, so may_be_reached_by_some is only a filter; reached_by_some is
+    exact.
+
+    The exact test keeps the topmost members (those with no ancestor in the set) in Q1
+    order. Their subtrees are disjoint, so if one of them is an ancestor of v, no other
+    topmost member lies between it and v in Q1: the last topmost member before v in Q1 is
+    the only one to test.
+    """
+
+    _lowest = True
+
+    def __init__(self, tree: "DTree", nodes: Iterable[str] = ()) -> None:
+        self._tops: List[str] = []       # topmost members, in Q1 order
+        super().__init__(tree, nodes)
+
+    def _last_top_before(self, v: str) -> int:
+        """Number of topmost members strictly left of v in Q1."""
+        q1, m = self._t._q1, self._tops
+        lo, hi = 0, len(m)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if q1.precedes(m[mid], v):
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo
+
+    def _covered(self, v: str) -> bool:
+        i = self._last_top_before(v)
+        return i > 0 and self._t.can_reach(self._tops[i - 1], v)
+
+    def _added(self, node: str) -> None:
+        if self._covered(node):
+            return                       # an ancestor of node is already in the set
+        i = self._last_top_before(node)
+        t, m = self._t, self._tops
+        while i < len(m) and t.can_reach(node, m[i]):
+            del m[i]                     # node is above them: they are no longer topmost
+        m.insert(i, node)
+
+    def _rebuilt(self) -> None:
+        self._tops = []
+        t = self._t
+        for v in self._members:          # Q1 order: ancestors come first
+            if not (self._tops and t.can_reach(self._tops[-1], v)):
+                self._tops.append(v)
+
+    def may_be_reached_by_some(self, v: str) -> bool:
+        """Fast rejection: False means no node of the set reaches v; True is not a confirmation."""
+        self._check()
+        t = self._t
+        if self._c1 is None or not t.contains(v):
+            return False
+        return t._q1.precedes(self._c1, v) and t._q2.precedes(self._c2, v)
+
+    def reached_by_some(self, v: str) -> bool:
+        """True if at least one node of the set reaches v (exact, O(log k))."""
+        if not self.may_be_reached_by_some(v):
+            return False
+        return self._covered(v)

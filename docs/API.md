@@ -122,3 +122,39 @@ Check if one node cannot reach another.
 #### `List<string> RootToPath(string node)`
 - Returns the sequence of nodes on the path from the root to `node`.
 - The first entry in the list is the root itself.
+
+### Set Queries
+
+A constructed node stands for a set of nodes S (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum (`VMin`, `UMin`) or maximum (`VMax`, `UMax`) of each index over S, separately in Q1 and Q2. `V` means S takes the target role, `CanReach(u, S)`; `U` means the source role, `CanReach(S, v)`. A constructed node stores members, not positions, and stays valid while nodes are inserted; after a deletion or a `CutNPaste` it is recomputed on its next use. All methods accept names or `DNode` handles. See [set-queries.md](set-queries.md).
+
+#### `VMin VMin(IEnumerable<string> nodes)`, `VMax VMax(…)`, `UMin UMin(…)`, `UMax UMax(…)`
+- Build the constructed node of `nodes`; each also takes `IEnumerable<DNode>`.
+- Python: `t.vmin(nodes=())`, `t.vmax(…)`, `t.umin(…)`, `t.umax(…)`.
+
+#### `ConstructedNode Add(string node)`
+- Adds a node to the set, in O(log k) for k members; returns the constructed node. Python: `add(node)`.
+
+#### `bool VMin.ReachesAll(string u)`
+- Returns `true` if `u` reaches every node of the set: `u` lies left of VMin in both Q1 and Q2. O(1).
+- Vacuously `true` for an empty set. Python: `reaches_all(u)`.
+
+#### `bool VMax.MayReachSome(string u)`
+- O(1) filter: `false` means `u` reaches no node of the set; `true` is not a confirmation. Python: `may_reach_some(u)`.
+
+#### `bool VMax.ReachesSome(string u)`
+- Returns `true` if `u` reaches at least one node of the set. Exact, O(log k): the first member after `u` in Q1 is found by binary search and tested, since the subtree of `u` is the block directly after `u` in Q1.
+- `false` for an empty set. Python: `reaches_some(u)`.
+
+#### `bool UMax.ReachedByAll(string v)`
+- Returns `true` if every node of the set reaches `v`: `v` lies right of UMax in both Q1 and Q2. O(1).
+- Vacuously `true` for an empty set. Python: `reached_by_all(v)`.
+
+#### `bool UMin.MayBeReachedBySome(string v)`
+- O(1) filter: `false` means no node of the set reaches `v`; `true` is not a confirmation. Python: `may_be_reached_by_some(v)`.
+
+#### `bool UMin.ReachedBySome(string v)`
+- Returns `true` if at least one node of the set reaches `v`. Exact, O(log k): UMin keeps the topmost members (no ancestor in the set) in Q1 order; their subtrees are disjoint, so only the last topmost member before `v` in Q1 needs testing.
+- `false` for an empty set. Python: `reached_by_some(v)`.
+
+#### `MemberNames`, `IndexNodes`, `Count`, `Refresh()`
+- The members in Q1 order; the members holding the minimal or maximal index in Q1 and in Q2 (possibly two different nodes); the number of members; an explicit recomputation (normally automatic). Python: `members`, `index_nodes`, `len(x)`, `refresh()`.

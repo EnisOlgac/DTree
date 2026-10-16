@@ -50,6 +50,7 @@ namespace DirectedTrees {
         private readonly DList _q1;
         private readonly DList _q2;
         private readonly List<string> _edgeLog = new();
+        internal int Reshapes;                  // counts deletions and moves; insertions keep the order of existing nodes
 
         public DTree(string treeId = "P1") {
             TreeId = treeId;
@@ -194,11 +195,13 @@ namespace DirectedTrees {
             _q1.PasteCellsAfter(block1, last.C1);
             u.Up = newParent;
             (newParent.Kids ??= new List<DNode>()).Add(u);
+            Reshapes++;
         }
 
         private void Forget(DNode n) {
             _nodes.Remove(n.Name);
             n.Owner = null;
+            Reshapes++;
             n.Up = null;
             n.Kids = null;
         }
@@ -227,6 +230,60 @@ namespace DirectedTrees {
 
         public bool TryGetNode(string name, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out DNode node) => _nodes.TryGetValue(name, out node);
 
+        // -- set queries -----------------------------------------------------------
+
+        /// <summary>Constructed node VMin: the minimum of each index over the nodes, in the target role (see the class <c>VMin</c>).</summary>
+        public VMin VMin(IEnumerable<string> nodes) {
+            var c = new VMin(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        public VMin VMin(IEnumerable<DNode> nodes) {
+            var c = new VMin(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        /// <summary>Constructed node VMax: the maximum of each index over the nodes, in the target role (see the class <c>VMax</c>).</summary>
+        public VMax VMax(IEnumerable<string> nodes) {
+            var c = new VMax(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        public VMax VMax(IEnumerable<DNode> nodes) {
+            var c = new VMax(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        /// <summary>Constructed node UMin: the minimum of each index over the nodes, in the source role (see the class <c>UMin</c>).</summary>
+        public UMin UMin(IEnumerable<string> nodes) {
+            var c = new UMin(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        public UMin UMin(IEnumerable<DNode> nodes) {
+            var c = new UMin(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        /// <summary>Constructed node UMax: the maximum of each index over the nodes, in the source role (see the class <c>UMax</c>).</summary>
+        public UMax UMax(IEnumerable<string> nodes) {
+            var c = new UMax(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
+        public UMax UMax(IEnumerable<DNode> nodes) {
+            var c = new UMax(this);
+            foreach (var n in nodes) c.Add(n);
+            return c;
+        }
+
         // -- queries ---------------------------------------------------------------
 
         public bool Contains(string node) => _nodes.ContainsKey(node);
@@ -246,7 +303,7 @@ namespace DirectedTrees {
         /// <summary>Reachability on handles: two position comparisons, no lookup. False for removed nodes.</summary>
         public bool CanReach(DNode u, DNode v) => u.Owner == this && v.Owner == this && Reaches(u, v);
 
-        private static bool Reaches(DNode u, DNode v) => DList.Less(u.C1, v.C1) && DList.Less(u.C2, v.C2);
+        internal static bool Reaches(DNode u, DNode v) => DList.Less(u.C1, v.C1) && DList.Less(u.C2, v.C2);
 
         public bool CanNotReach(string u, string v) => !CanReach(u, v);
         public bool CanNotReach(DNode u, DNode v) => !CanReach(u, v);
@@ -327,7 +384,7 @@ namespace DirectedTrees {
         private DNode Require(string node) =>
             _nodes.TryGetValue(node, out var n) ? n : throw new KeyNotFoundException($"node '{node}' is not in the tree");
 
-        private void Own(DNode node) {
+        internal void Own(DNode node) {
             if (node.Owner != this) throw new ArgumentException($"node '{node.Name}' does not belong to this tree");
         }
     }

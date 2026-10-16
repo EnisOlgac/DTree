@@ -1,4 +1,4 @@
-// Tests and benchmarks for the C# DTree (port of the Python reference implementation 1.1.0).
+// Tests and benchmarks for the C# DTree (port of the Python reference implementation).
 //
 //   dotnet run --project csharp/DTree.Tests -c Release            run all tests
 //   dotnet run --project csharp/DTree.Tests -c Release -- bench   run the benchmarks
@@ -38,6 +38,13 @@ namespace DirectedTrees.Tests {
                 ("growth at both ends", Tests.GrowthAtBothEnds),
                 ("random list operations", Tests.RandomListOperations),
                 ("node handles", Tests.NodeHandles),
+                ("VMax: counterexample for reaches some", Tests.VMaxCounterexample),
+                ("UMin: counterexample for reached by some", Tests.UMinCounterexample),
+                ("UMin: nested members", Tests.UMinNestedMembers),
+                ("constructed nodes: random sets vs brute force", Tests.ConstructedRandomSets),
+                ("constructed nodes: incremental add", Tests.ConstructedIncrementalAdd),
+                ("constructed nodes: empty set", Tests.ConstructedEmptySet),
+                ("constructed nodes survive inserts, deletes and moves", Tests.ConstructedSurvivesChanges),
             };
             var total = Stopwatch.StartNew();
             foreach (var (name, body) in tests) {
@@ -495,6 +502,149 @@ namespace DirectedTrees.Tests {
         }
     }
 
+    internal static partial class Tests {
+        private static bool BruteReaches(Reference r, string u, string v) => u != v && r.Ancestors(v).Contains(u);
+
+        private sealed record ConstructedNodes(VMin VMin, VMax VMax, UMin UMin, UMax UMax) {
+            public static ConstructedNodes Of(DTree t, IEnumerable<string> set) {
+                var list = set.ToList();
+                return new(t.VMin(list), t.VMax(list.Select(t.GetNode)), t.UMin(list), t.UMax(list.Select(t.GetNode)));
+            }
+        }
+
+        private static void CheckConstructed(DTree t, Reference r, ConstructedNodes c, List<string> set, string tag) {
+            foreach (var u in r.Nodes()) {
+                bool all = set.All(v => BruteReaches(r, u, v));
+                bool some = set.Any(v => BruteReaches(r, u, v));
+                bool byAll = set.All(v => BruteReaches(r, v, u));
+                bool bySome = set.Any(v => BruteReaches(r, v, u));
+                var h = t.GetNode(u);
+                Equal(c.VMin.ReachesAll(u), all, $"{tag}: VMin.ReachesAll({u})");
+                Equal(c.VMax.ReachesSome(u), some, $"{tag}: VMax.ReachesSome({u})");
+                Equal(c.VMax.ReachesSome(h), some, $"{tag}: VMax.ReachesSome(handle {u})");
+                Equal(c.UMax.ReachedByAll(u), byAll, $"{tag}: UMax.ReachedByAll({u})");
+                Equal(c.UMin.ReachedBySome(u), bySome, $"{tag}: UMin.ReachedBySome({u})");
+                Equal(c.UMin.ReachedBySome(h), bySome, $"{tag}: UMin.ReachedBySome(handle {u})");
+                if (some) Check(c.VMax.MayReachSome(u), $"{tag}: MayReachSome({u}) must not reject a true case");
+                if (bySome) Check(c.UMin.MayBeReachedBySome(u), $"{tag}: MayBeReachedBySome({u}) must not reject a true case");
+            }
+        }
+
+        private static (DTree, Reference) Build(params (string, string)[] edges) {
+            var t = new DTree();
+            var r = new Reference();
+            foreach (var (u, v) in edges) {
+                t.Insert(u, v);
+                r.Insert(u, v);
+            }
+            return (t, r);
+        }
+
+        public static void VMaxCounterexample() {
+            var (t, r) = Build(("r", "n1"), ("n1", "n2"), ("r", "n3"), ("n2", "n4"), ("n4", "n5"), ("n3", "n6"), ("n3", "n7"));
+            var set = new List<string> { "n1", "n7" };
+            var vmax = t.VMax(set);
+            Equal(vmax.IndexNodes, ("n7", "n1"), "VMax index nodes (Q1, Q2)");
+            Check(vmax.MayReachSome("n6"), "n6 lies left of VMax in both lists");
+            Check(!vmax.ReachesSome("n6"), "but n6 reaches neither n1 nor n7");
+            CheckConstructed(t, r, ConstructedNodes.Of(t, set), set, "VMax counterexample");
+        }
+
+        public static void UMinCounterexample() {
+            var (t, r) = Build(("r", "a"), ("r", "m"), ("r", "b"));
+            var set = new List<string> { "a", "b" };
+            var umin = t.UMin(set);
+            Equal(umin.IndexNodes, ("a", "b"), "UMin index nodes (Q1, Q2)");
+            Check(umin.MayBeReachedBySome("m"), "m = (2, 2) lies right of UMin = (1, 1) in both lists");
+            Check(!umin.ReachedBySome("m"), "but neither a nor b reaches m");
+            CheckConstructed(t, r, ConstructedNodes.Of(t, set), set, "UMin counterexample");
+        }
+
+        public static void UMinNestedMembers() {
+            // s1 is an ancestor of v; s2 lies inside s1's subtree, left of v, and is the last
+            // member before v in Q1. Only the topmost members may be searched.
+            var (t, r) = Build(("r", "s1"), ("s1", "s2"), ("s1", "v"), ("r", "w"));
+            var set = new List<string> { "s2", "s1" };
+            var umin = t.UMin(set);
+            Check(umin.ReachedBySome("v") && umin.ReachedBySome("s2"), "s1 reaches v and s2");
+            Check(!umin.ReachedBySome("w") && !umin.ReachedBySome("s1"), "nothing in the set reaches w or s1");
+            CheckConstructed(t, r, ConstructedNodes.Of(t, set), set, "nested members");
+        }
+
+        public static void ConstructedRandomSets() {
+            for (int seed = 0; seed < 20; seed++) {
+                var (t, r, rnd) = RandomTree(80, seed);
+                var nodes = r.Nodes();
+                foreach (int k in new[] { 1, 2, 5, 20 }) {
+                    var set = nodes.OrderBy(_ => rnd.Next()).Take(k).ToList();
+                    CheckConstructed(t, r, ConstructedNodes.Of(t, set), set, $"seed {seed}, k {k}");
+                }
+            }
+        }
+
+        public static void ConstructedIncrementalAdd() {
+            var (t, r, rnd) = RandomTree(100, 3);
+            var c = ConstructedNodes.Of(t, Array.Empty<string>());
+            var set = new List<string>();
+            foreach (var v in r.Nodes().OrderBy(_ => rnd.Next()).Take(15)) {
+                c.VMin.Add(v);
+                c.VMax.Add(v);
+                c.UMin.Add(t.GetNode(v));
+                c.UMax.Add(v);
+                set.Add(v);
+                CheckConstructed(t, r, c, set, $"after adding {v}");
+            }
+        }
+
+        public static void ConstructedEmptySet() {
+            var (t, _, _) = RandomTree(20, 1);
+            var c = ConstructedNodes.Of(t, Array.Empty<string>());
+            Check(c.VMin.ReachesAll("n3") && c.UMax.ReachedByAll("n3"), "all: vacuously true");
+            Check(!c.VMax.MayReachSome("n3") && !c.VMax.ReachesSome("n3"), "reaches some: false");
+            Check(!c.UMin.MayBeReachedBySome("n3") && !c.UMin.ReachedBySome("n3"), "reached by some: false");
+            Check(!c.VMin.ReachesAll("missing"), "unknown node");
+            Equal(c.VMin.IndexNodes, ((string?)null, (string?)null), "no index nodes");
+        }
+
+        public static void ConstructedSurvivesChanges() {
+            for (int seed = 0; seed < 10; seed++) {
+                var (t, r, rnd) = RandomTree(60, seed);
+                var set = r.Nodes().Where(n => n != r.Root).OrderBy(_ => rnd.Next()).Take(5).ToList();
+                var c = ConstructedNodes.Of(t, set);
+                int next = 60;
+                for (int step = 0; step < 40; step++) {
+                    var nodes = r.Nodes();
+                    var inner = nodes.Where(n => n != r.Root).ToList();
+                    double x = rnd.NextDouble();
+                    if (x < 0.5 || inner.Count < 5) {
+                        var p = nodes[rnd.Next(nodes.Count)];
+                        t.Insert(p, $"x{next}");
+                        r.Insert(p, $"x{next}");
+                        next++;
+                    } else if (x < 0.65) {
+                        var v = inner[rnd.Next(inner.Count)];
+                        t.Delete(v);
+                        r.Delete(v);
+                    } else if (x < 0.75) {
+                        var v = inner[rnd.Next(inner.Count)];
+                        t.DeleteSubtree(v);
+                        r.DeleteSubtree(v);
+                    } else {
+                        var u = inner[rnd.Next(inner.Count)];
+                        var banned = new HashSet<string>(t.Subtree(u));
+                        var targets = nodes.Where(n => !banned.Contains(n)).ToList();
+                        var p = targets[rnd.Next(targets.Count)];
+                        t.CutNPaste(u, p);
+                        r.Move(u, p);
+                    }
+                    var live = set.Where(t.Contains).ToList();
+                    CheckConstructed(t, r, c, live, $"seed {seed}, step {step}");
+                    Seq(c.UMin.MemberNames.OrderBy(n => n, StringComparer.Ordinal), live.OrderBy(n => n, StringComparer.Ordinal), "members");
+                }
+            }
+        }
+    }
+
     internal static class Bench {
         private static readonly (string Name, Func<int, List<string>, Random, string> Parent)[] Shapes = {
             ("random", (i, names, rnd) => names[rnd.Next(names.Count)]),
@@ -546,6 +696,112 @@ namespace DirectedTrees.Tests {
             foreach (var (u, v) in handles) if (tree.CanReach(u, v)) hits2++;
             double perHandle = sw.Elapsed.TotalMilliseconds * 1000 / queries;
             Console.WriteLine($"CanReach on a random tree of {big:N0} nodes: {perHandle:F3} µs per call with node handles ({hits2:N0} reachable)");
+
+            Depth(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 50_000);
+            Sets(100_000, new[] { 10, 100, 1_000, 10_000 }, 1_000, 200);
+        }
+
+        /// <summary>A spine (chain) of depth nodes; all other nodes hang at random under spine nodes.</summary>
+        private static (DTree Tree, List<DNode> Nodes) BuildWithDepth(int n, int depth, int seed = 1) {
+            var rnd = new Random(seed);
+            var t = new DTree("D");
+            var nodes = new List<DNode>();
+            for (int i = 1; i < n; i++) {
+                if (i == 1) {
+                    t.Insert("n0", "n1");
+                    nodes.Add(t.GetNode("n0"));
+                    nodes.Add(t.GetNode("n1"));
+                    continue;
+                }
+                var parent = i < depth ? nodes[^1] : nodes[rnd.Next(Math.Min(depth, nodes.Count))];
+                nodes.Add(t.Insert(parent, $"n{i}"));
+            }
+            return (t, nodes);
+        }
+
+        /// <summary>What classical doubly linked trees do: climb from v towards the root, looking for u.</summary>
+        private static bool ParentWalk(DNode u, DNode v) {
+            for (var w = v.Parent; w != null; w = w.Parent)
+                if (w == u) return true;
+            return false;
+        }
+
+        /// <summary>Climb once from v towards the root and count the ancestors of v that lie in members.</summary>
+        private static int AncestorsIn(DNode v, HashSet<DNode> members) {
+            int hits = 0;
+            for (var w = v.Parent; w != null; w = w.Parent)
+                if (members.Contains(w)) hits++;
+            return hits;
+        }
+
+        private static void Depth(int n, int[] depths, int queries) {
+            Console.WriteLine($"\nReachability by depth: DTree vs parent walk ({n:N0} nodes, {queries:N0} random pairs, node handles)\n");
+            Console.WriteLine("| depth | DTree [µs] | parent walk [µs] | factor |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: |");
+            foreach (var depth in depths) {
+                var (t, nodes) = BuildWithDepth(n, depth);
+                var rnd = new Random(2);
+                var pairs = new (DNode, DNode)[queries];
+                for (int i = 0; i < queries; i++) pairs[i] = (nodes[rnd.Next(nodes.Count)], nodes[rnd.Next(nodes.Count)]);
+                var a = new bool[queries];
+                var b = new bool[queries];
+                for (int i = 0; i < 100; i++) { t.CanReach(pairs[i].Item1, pairs[i].Item2); ParentWalk(pairs[i].Item1, pairs[i].Item2); }   // warm-up (JIT)
+                var sw = Stopwatch.StartNew();
+                for (int i = 0; i < queries; i++) a[i] = t.CanReach(pairs[i].Item1, pairs[i].Item2);
+                double d = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                sw.Restart();
+                for (int i = 0; i < queries; i++) b[i] = ParentWalk(pairs[i].Item1, pairs[i].Item2);
+                double w = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                if (!a.SequenceEqual(b)) throw new InvalidOperationException("DTree and parent walk disagree");
+                Console.WriteLine($"| {depth:N0} | {d:F3} | {w:F3} | {w / d:N1}× |");
+            }
+        }
+
+        private static void Sets(int n, int[] depths, int k, int queries) {
+            Console.WriteLine($"\nSet queries: constructed nodes vs parent walk ({n:N0} nodes, set of {k:N0} nodes; DTree 100,000 and parent walk {queries:N0} random query nodes)\n");
+            Console.WriteLine("| depth | question | DTree [µs] | parent walk [µs] | factor |");
+            Console.WriteLine("| ---: | --- | ---: | ---: | ---: |");
+            double build = 0;
+            foreach (var depth in depths) {
+                var (t, nodes) = BuildWithDepth(n, depth);
+                var rnd = new Random(4);
+                var set = nodes.OrderBy(_ => rnd.Next()).Take(k).ToList();
+                var us = Enumerable.Range(0, queries).Select(_ => nodes[rnd.Next(nodes.Count)]).ToArray();
+                // DTree is fast, so it answers many different random query nodes (no cache or
+                // branch-predictor advantage from repeating the same ones); the parent walk answers
+                // the first `queries` of them, and both are compared on those.
+                var many = us.Concat(Enumerable.Range(0, 100_000 - queries).Select(_ => nodes[rnd.Next(nodes.Count)])).ToArray();
+                var sw = Stopwatch.StartNew();
+                var vmin = t.VMin(set);
+                var vmax = t.VMax(set);
+                var umin = t.UMin(set);
+                var umax = t.UMax(set);
+                build = sw.Elapsed.TotalMilliseconds;
+                var members = new HashSet<DNode>(set);
+                // "reaches": climb from every member looking for u. "reached by": climb once from u,
+                // looking each ancestor up in a hash set of the members (the best a parent walk can do).
+                var questions = new (string Name, Func<DNode, bool> V, Func<DNode, bool> Walk)[] {
+                    ("reaches all", u => vmin.ReachesAll(u), u => set.All(v => ParentWalk(u, v))),
+                    ("reaches some", u => vmax.ReachesSome(u), u => set.Any(v => ParentWalk(u, v))),
+                    ("reached by all", u => umax.ReachedByAll(u), u => AncestorsIn(u, members) == members.Count),
+                    ("reached by some", u => umin.ReachedBySome(u), u => AncestorsIn(u, members) > 0),
+                };
+                foreach (var (name, v, walk) in questions) {
+                    foreach (var u in us.Take(20)) { v(u); walk(u); }    // warm-up (JIT)
+                    int sink = 0;
+                    sw.Restart();
+                    foreach (var u in many) if (v(u)) sink++;
+                    double d = sw.Elapsed.TotalMilliseconds * 1000 / many.Length;
+                    var a = us.Select(v).ToArray();
+                    if (sink < 0) Console.Write("");
+                    sw.Restart();
+                    var b = us.Select(walk).ToArray();
+                    double w = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+                    if (!a.SequenceEqual(b)) throw new InvalidOperationException($"{name}: DTree and parent walk disagree");
+                    Console.WriteLine($"| {depth:N0} | {name} | {d:F3} | {w:F1} | {(w < 10 * d ? (w / d).ToString("F1") : (w / d).ToString("N0"))}× |");
+                }
+            }
+            Console.WriteLine($"\n(Building VMin, VMax, UMin and UMax for {k:N0} nodes: {build:F2} ms, once per set.)");
         }
     }
 }

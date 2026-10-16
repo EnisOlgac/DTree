@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.0
+
+**Set queries with constructed nodes** (Python and C#). A constructed node stands for a node set S: the minimum or maximum of each index over S, separately in Q1 and Q2; the two values usually belong to two different members. VMin and VMax take S as the target of reachability, UMin and UMax as the source. The idea and the names VMin and VMax are Enis Olgac's, from his presentation "Topology and Structure of Directed Graphs - Inducing a Subgraph" (ResearchGate, 2021); the naming by role with UMin and UMax is his as well. This release brings them to the tree library.
+
+- `vmin(S).reaches_all(u)` / `VMin(S).ReachesAll(u)`: exact in O(1).
+- `vmax(S).reaches_some(u)` / `VMax(S).ReachesSome(u)`: exact in O(log k); `may_reach_some` / `MayReachSome` is the O(1) filter (a node left of VMax may still reach no member).
+- `umax(S).reached_by_all(v)` / `UMax(S).ReachedByAll(v)`: exact in O(1).
+- `umin(S).reached_by_some(v)` / `UMin(S).ReachedBySome(v)`: exact in O(log k); `may_be_reached_by_some` / `MayBeReachedBySome` is the O(1) filter.
+- The two exact "some" tests were added by Claude. `reaches_some` uses the contiguity of subtrees in Q1: the first member after u in Q1 is reached exactly when any member is. `reached_by_some` keeps the topmost members (no ancestor in S) in Q1 order; their subtrees are disjoint, so only the last one before v in Q1 needs testing.
+- A constructed node stores its members, not positions. Insertions and renumbering keep the order of existing nodes, so it stays valid while the tree grows; after a deletion or a move it is recomputed on its next use.
+- Tests check every answer against brute force, including counterexamples for both filters, nested members, and random sequences of inserts, deletes and moves.
+- Benchmarks (Python and C#) compare with the parent walk of a classical tree, by tree depth and for all four set questions. On a tree of 100,000 nodes and depth 10,000, with a set of 1,000 nodes (Enis Olgac's NUC, C#):
+
+| question | DTree | parent walk | factor |
+| --- | ---: | ---: | ---: |
+| u reaches v | 0.050 µs | 17.1 µs | 344× |
+| u reaches all of S | 0.028 µs | 48.6 µs | 1,745× |
+| u reaches some of S | 0.209 µs | 17,018 µs | 81,448× |
+| all of S reach v | 0.029 µs | 63.9 µs | 2,173× |
+| some of S reach v | 0.126 µs | 56.7 µs | 450× |
+
+  DTree's times do not depend on depth; on shallow trees (depth 10) the parent walk is as fast or faster. Full tables for Python and C#: [`docs/set-queries.md`](docs/set-queries.md).
+
 ## 1.3.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23414463.
