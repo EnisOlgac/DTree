@@ -1,7 +1,7 @@
 """DTree: a single-rooted directed tree encoded by two linear projections.
 
-Python implementation of the DTree design and API by Enis Olgac (C# original in
-``src/``). This port was written with Claude (Anthropic) and checked against a
+Python implementation of the DTree design and API by Enis Olgac (original C#
+prototype in releases up to 1.1.0). This port was written with Claude (Anthropic) and checked against a
 brute-force reference in ``tests/``.
 
 Projection model

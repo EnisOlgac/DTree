@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>DirectedTrees</RootNamespace>
+    <AssemblyName>DTree.Core</AssemblyName>
+    <Version>1.2.0</Version>
+    <Authors>Enis Olgac</Authors>
+    <Description>Single-rooted directed tree encoded by two linear projections (Q1, Q2) with O(1) reachability.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

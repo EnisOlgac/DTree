@@ -1,4 +1,6 @@
-﻿using System.IO;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 
 using Microsoft.Win32;
@@ -49,7 +51,12 @@ namespace Tree.View {
                 var succs = succList.GetUpperBound(0);
                 for (int i = 0; i <= succs; i++) {
                     var vDef = succList[i].Trim();
-                    T.InsEdge(uDef, vDef);
+                    if (vDef == "") continue;
+                    try {
+                        T.Insert(uDef, vDef);
+                    } catch (Exception e) when (e is ArgumentException || e is KeyNotFoundException) {
+                        MessageBox.Show($"Line {numLines}: ({uDef}, {vDef}) skipped.\n{e.Message}", "DTree", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
                 }
             }
             graph.Close();

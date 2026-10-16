@@ -8,7 +8,6 @@ using DirectedTrees;
 
 using static System.Math;
 using static System.Windows.Controls.Canvas;
-using static DirectedTrees.Extensions;
 
 namespace Tree.View {
     public partial class MainWindow : Window {
@@ -38,11 +37,11 @@ namespace Tree.View {
 
         internal (int, int) DrawSpanTreesFwd(int maxRow) {
             int maxCol = 0;
-            string q1 = T.PrintQ1, q2 = T.PrintQ2;
-            (maxRow, maxCol) = DrawSpanTreeFwd(T.Q1, maxRow);
+            string q1 = T.Q1.ToString(), q2 = T.Q2.ToString();
+            (maxRow, maxCol) = DrawSpanTreeFwd(T.Q1.ToList(withMarkers: true), maxRow);
             Board.Children.Add(List(q1, CellWidth, (maxRow += 2) * CellHeight));
             Board.Children.Add(List(q2, CellWidth, (maxRow += 1) * CellHeight));
-            (maxRow, maxCol) = DrawSpanTreeFwd(T.Q2, maxRow += 1);
+            (maxRow, maxCol) = DrawSpanTreeFwd(T.Q2.ToList(withMarkers: true), maxRow += 1);
             return (maxRow, maxCol);
         }
 
@@ -66,9 +65,9 @@ namespace Tree.View {
             string w = oo[i];
             for (; w != sink; w = oo[++i]) {
                     curr = new Figure() { V = w };
-                    if (last.V != (a = T.Pred(curr.V) ?? last.V)) {
+                    if (last.V != (a = T.GetParent(curr.V) ?? T.Source)) {
                         ++col;
-                        if (a == source) { last = org; } else { last = dict.Get(a); }
+                        if (a == source) { last = org; } else { last = dict[a]; }
                     }
                     row = last.RowInd;
                     curr.ColInd = col;

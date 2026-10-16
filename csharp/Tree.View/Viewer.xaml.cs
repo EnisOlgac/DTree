@@ -1,8 +1,6 @@
 ﻿using System.Windows;
 using DirectedTrees;
 
-using static DirectedTrees.DTree;
-
 namespace Tree.View {
     public partial class MainWindow : Window {
         public MainWindow() { InitializeComponent(); }
@@ -13,7 +11,7 @@ namespace Tree.View {
             var openOK = OpenDiTree();
             if (openOK) {
                 Title = "Topology and Structure of a Directed Tree - " + TreeFile;
-                T = CreateDTree(TreeName);
+                T = new DTree(TreeName);
                 TDef.Text = "";
                 ReadDiGraph();
                 TDef.Text = T.EdgeLog;

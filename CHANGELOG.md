@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0
+
+**C# implementation** (`csharp/DTree.Core`): a port of the Python 1.1.0 implementation with the same API in C# naming and the same rational (mediant) positions, stored as 64-bit numerator/denominator pairs and compared with 128-bit products. A test program (`csharp/DTree.Tests`) mirrors the Python test suite and includes the benchmark (`-- bench`). The automatic checks now also run the C# tests.
+
+**Viewer on the new library:** the WPF viewer (`csharp/Tree.View`) now uses `DTree.Core` instead of the prototype. Invalid lines in a `.csx` file are reported and skipped instead of stopping the program. `DTree.Core` and `DTree.Tests` are part of `csharp/DTree.sln`. The original prototype (`src/Tree`) has been removed from the repository; it remains available in releases 1.0.0 and 1.1.0 and their Zenodo archives.
+
+**Folder renamed:** the C# code moved from `src/` to `csharp/`.
+
+**Title** aligned with the paper: "DTree—Topology and Structure of Directed Trees: An Incremental Encoding".
+
 ## 1.1.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23397159.

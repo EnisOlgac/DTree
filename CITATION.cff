@@ -9,9 +9,9 @@ authors:
     orcid: "https://orcid.org/0009-0009-7560-6107"
 repository-code: "https://github.com/EnisOlgac/DTree"
 license: MIT
-version: "1.1.0"
+version: "1.2.0"
 doi: "10.5281/zenodo.23395710"  # all versions
-date-released: "2026-10-15"
+date-released: "2026-10-16"
 keywords:
   - directed tree
   - reachability
@@ -23,8 +23,9 @@ abstract: >-
   DTree is a minimal library for single-rooted directed trees whose
   structure is encoded by two linear projections, Q1 and Q2. Node u
   reaches node v if and only if u strictly precedes v in both projections.
-  The reference implementation (Python) supports edge insertion, deletion,
-  subtree moves (cut_n_paste), and path-based queries; a C# prototype is
+  Python and C# implementations support edge insertion, deletion,
+  subtree moves, and path-based queries, with rational (mediant) positions
+  so that inserting a node normally moves no other node. A WPF viewer is
   included.
 preferred-citation:
   type: generic

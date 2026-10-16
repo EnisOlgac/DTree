@@ -7,7 +7,7 @@
 
 `DTree` is a minimal library for single-rooted directed trees whose structure is encoded by two linear projections, `Q1` and `Q2`. Reachability between any two nodes is answered by comparing their positions, without traversing the tree.
 
-The reference implementation is in Python ([`python/`](python/)), with no dependencies and a test suite. The original C# prototype is in [`src/`](src/).
+The reference implementation is in Python ([`python/`](python/)), with no dependencies and a test suite. The C# implementation and a WPF viewer are in [`csharp/`](csharp/).
 
 ## Projection Model
 
@@ -72,11 +72,11 @@ python -m unittest discover -s tests
 
 ## C# Implementation
 
-[`src/DTree.Core/`](src/DTree.Core/) is a C# (.NET 9) port of the Python implementation with the same API in C# naming: `Insert`, `Delete`, `DeleteSubtree`, `CutNPaste`, `CanReach`, `PathToRoot`, `Depth`, …, and `Q1`/`Q2` as `DList` projections with rational positions. Its test program checks every query against a brute-force model, as the Python tests do:
+[`csharp/DTree.Core/`](csharp/DTree.Core/) is a C# (.NET 9) port of the Python implementation with the same API in C# naming: `Insert`, `Delete`, `DeleteSubtree`, `CutNPaste`, `CanReach`, `PathToRoot`, `Depth`, …, and `Q1`/`Q2` as `DList` projections with rational positions. Its test program checks every query against a brute-force model, as the Python tests do:
 
 ```
-dotnet run --project src/DTree.Tests -c Release            # tests
-dotnet run --project src/DTree.Tests -c Release -- bench   # benchmarks
+dotnet run --project csharp/DTree.Tests -c Release            # tests
+dotnet run --project csharp/DTree.Tests -c Release -- bench   # benchmarks
 ```
 
 ```csharp
@@ -89,14 +89,11 @@ t.CanReach("A", "C");   // true
 t.PathToRoot("C");      // ["C", "B", "A"]
 ```
 
-## C# Prototype
+[`csharp/Tree.View/`](csharp/Tree.View/) is a WPF viewer (Windows only) built on `DTree.Core`: *Select DiTree* opens a `.csx` file from [`examples/`](examples/), lists the inserted edges, and draws the tree once along `Q1` and once along `Q2`. Open `csharp/DTree.sln` in Visual Studio and start `Tree.View`.
 
-[`src/Tree/`](src/Tree/) is the original C# implementation (.NET 9), and [`src/Tree.View/`](src/Tree.View/) a WPF viewer that draws a tree from a `.csx` file (Windows only). Insertion and the `Q1`/`Q2` projections work as described above. Known issues in the prototype:
+## Original C# Prototype
 
-- `CutNPaste` and `Delete` are not yet implemented.
-- `Root`, `PathToRoot`, `RootPathTo`, `Depth`, `IsAncestor`, `IsDescendant` and `SameSubtree` do not yet match the API reference.
-- `CanReach(u, u)` returns `true` (reflexive), unlike the Python implementation.
-- Projection positions are `decimal` midpoints rounded to the leading significant digit of the gap, which keeps positions short. With no renumbering, though, a gap that keeps receiving insertions still shrinks geometrically and runs out of `decimal` precision at roughly 65 nodes in a chain or about 110 children under one node.
+The author's original C# prototype (with the WPF viewer on top of it) is included in the releases up to version 1.1.0 and archived on Zenodo (version 1.1.0: [10.5281/zenodo.23397159](https://doi.org/10.5281/zenodo.23397159)). It was removed from the repository afterwards; `DTree.Core` replaces it.
 
 ## Documentation
 
@@ -108,8 +105,8 @@ t.PathToRoot("C");      // ["C", "B", "A"]
 ```
 DTree/
 ├── python/         Python implementation with tests
-├── src/            C# implementation (DTree.Core, DTree.Tests) and the original
-│                   prototype (Tree library, Tree.View WPF viewer)
+├── csharp/         C# implementation (DTree.Core, DTree.Tests) and WPF viewer
+│                   (Tree.View)
 ├── examples/       sample trees (.csx: "parent: child1; child2")
 ├── docs/           API reference (Markdown, PDF, LaTeX sources)
 ├── CITATION.cff    citation metadata

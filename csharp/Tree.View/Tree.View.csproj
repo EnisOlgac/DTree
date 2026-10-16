@@ -17,6 +17,6 @@
     <FileAlignment>1024</FileAlignment>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Tree\Tree.csproj" />
+    <ProjectReference Include="..\DTree.Core\DTree.Core.csproj" />
   </ItemGroup>
 </Project>

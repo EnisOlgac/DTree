@@ -15,7 +15,18 @@ jobs:
         with:
           dotnet-version: "9.0.x"
       - name: Build
-        run: dotnet build src/DTree.sln --configuration Release -p:Platform=x64
+        run: dotnet build csharp/DTree.sln --configuration Release -p:Platform=x64
+
+  csharp:
+    # C# port of the Python implementation (csharp/DTree.Core) with its test program.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Test
+        run: dotnet run --project csharp/DTree.Tests -c Release
 
   python:
     runs-on: ubuntu-latest
