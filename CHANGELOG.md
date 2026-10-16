@@ -10,6 +10,22 @@
 
 **Title** aligned with the paper: "DTree—Topology and Structure of Directed Trees: An Incremental Encoding".
 
+**Benchmark, Python and C#** (`python python/benchmarks/bench.py 10000 100000` and `dotnet run --project csharp/DTree.Tests -c Release -- bench 10000 100000`, trees of 100,000 nodes, both on the same Windows PC with Python 3.14.2 and .NET 9.0.21):
+
+| shape | build time Python [s] | build time C# [s] | factor | renumberings Q1 / Q2, Python | renumberings Q1 / Q2, C# | positions moved per insertion, Python / C# |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| random | 0.45 | 0.235 | 1.9× | 0 / 0 | 0 / 0 | 0 / 0 |
+| chain | 0.25 | 0.189 | 1.3× | 0 / 0 | 0 / 0 | 0 / 0 |
+| star (root) | 0.21 | 0.107 | 2.0× | 0 / 0 | 0 / 0 | 0 / 0 |
+| star (inner node) | 0.37 | 0.127 | 2.9× | 0 / 0 | 0 / 0 | 0 / 0 |
+| alternating (worst case) | 0.56 | 0.294 | 1.9× | 0 / 2,172 | 0 / 3,447 | 3.83 / 4.44 |
+
+| query on a random tree of 100,000 nodes | Python | C# | factor |
+| --- | ---: | ---: | ---: |
+| `can_reach` / `CanReach`, per call | 1.4 µs | 0.37 µs | 3.8× |
+
+Both implementations renumber identically except in the alternating worst case: C# stores positions as 64-bit numerator/denominator pairs and therefore renumbers somewhat earlier (denominators up to 2^40, renumbered regions use k/2^20) than Python with its unbounded integers (2^64 and k/2^32). The C# figures match those predicted by running the Python implementation with the C# limits. Building a tree is dominated by dictionary lookups on node names in both languages, so C# gains less there than on reachability queries, which compare positions directly.
+
 ## 1.1.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23397159.
