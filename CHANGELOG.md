@@ -2,6 +2,8 @@
 
 ## 1.4.0
 
+Archived on Zenodo: doi:10.5281/zenodo.23420472.
+
 **Set queries with constructed nodes** (Python and C#). A constructed node stands for a node set S: the minimum or maximum of each index over S, separately in Q1 and Q2; the two values usually belong to two different members. VMin and VMax take S as the target of reachability, UMin and UMax as the source. The idea and the names VMin and VMax are Enis Olgac's, from his presentation "Topology and Structure of Directed Graphs - Inducing a Subgraph" (ResearchGate, 2021); the naming by role with UMin and UMax is his as well. This release brings them to the tree library.
 
 - `vmin(S).reaches_all(u)` / `VMin(S).ReachesAll(u)`: exact in O(1).
