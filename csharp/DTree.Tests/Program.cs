@@ -2,6 +2,7 @@
 //
 //   dotnet run --project csharp/DTree.Tests -c Release            run all tests
 //   dotnet run --project csharp/DTree.Tests -c Release -- bench   run the benchmarks
+//   dotnet run --project csharp/DTree.Tests -c Release -- bench dynamic   only insertions and queries alternating
 //
 // Every query is checked against a brute-force parent/children model (no projections).
 
@@ -16,7 +17,8 @@ namespace DirectedTrees.Tests {
 
         private static int Main(string[] args) {
             if (args.Length > 0 && args[0] == "bench") {
-                Bench.Run(args.Skip(1).Select(a => int.Parse(a)).ToArray());
+                if (args.Length > 1 && args[1] == "dynamic") Bench.RunDynamic();
+                else Bench.Run(args.Skip(1).Select(a => int.Parse(a)).ToArray());
                 return 0;
             }
             var tests = new (string Name, Action Body)[] {
@@ -699,6 +701,139 @@ namespace DirectedTrees.Tests {
 
             Depth(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 50_000);
             Sets(100_000, new[] { 10, 100, 1_000, 10_000 }, 1_000, 200);
+            Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
+        }
+
+        public static void RunDynamic() {
+            Console.WriteLine($"DTree dynamic updates (C#, .NET {Environment.Version})");
+            Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
+        }
+
+        // -- dynamic updates: insertions and queries alternating --------------------------------
+
+        /// <summary>A classical tree node: parent link and child list.</summary>
+        private sealed class PNode {
+            public PNode? Parent;
+            public readonly List<PNode> Kids = new();
+            public readonly int Id;
+            public PNode(int id) { Id = id; }
+        }
+
+        private sealed record Step(int Parent, int Child, (int U, int V)[] Queries);
+
+        /// <summary>The same sequence for every contender: insertions (a spine of depth nodes, the others
+        /// attached at random to spine nodes) with random queries among the nodes present.</summary>
+        private static Step[] Workload(int n, int depth, int queriesPerInsert, int seed = 5) {
+            var rnd = new Random(seed);
+            var steps = new Step[n - 1];
+            for (int i = 1; i < n; i++) {
+                int parent = i < depth ? i - 1 : rnd.Next(Math.Min(depth, i));
+                var qs = new (int, int)[queriesPerInsert];
+                for (int q = 0; q < queriesPerInsert; q++) qs[q] = (rnd.Next(i + 1), rnd.Next(i + 1));
+                steps[i - 1] = new Step(parent, i, qs);
+            }
+            return steps;
+        }
+
+        private static (double Ms, List<bool> Answers) RunDTree(Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var t = new DTree("D");
+            var nodes = new DNode[steps.Length + 1];
+            foreach (var s in steps) {
+                if (s.Child == 1) {
+                    nodes[1] = t.Insert("n0", "n1");
+                    nodes[0] = t.GetNode("n0");
+                } else {
+                    nodes[s.Child] = t.Insert(nodes[s.Parent], $"n{s.Child}");
+                }
+                foreach (var (u, v) in s.Queries) answers.Add(t.CanReach(nodes[u], nodes[v]));
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static (double Ms, List<bool> Answers) RunParentWalk(Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            var nodes = new PNode[steps.Length + 1];
+            nodes[0] = new PNode(0);
+            foreach (var s in steps) {
+                var c = new PNode(s.Child) { Parent = nodes[s.Parent] };
+                nodes[s.Parent].Kids.Add(c);
+                nodes[s.Child] = c;
+                foreach (var (u, v) in s.Queries) {
+                    bool hit = false;
+                    for (var w = nodes[v].Parent; w != null; w = w.Parent)
+                        if (w == nodes[u]) { hit = true; break; }
+                    answers.Add(hit);
+                }
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        /// <summary>Pre- and post-order numbers from a traversal, recomputed before a query whenever the
+        /// tree has changed: O(1) queries, but every insertion invalidates all numbers.</summary>
+        private static (double Ms, List<bool> Answers) RunStaticNumbers(Step[] steps) {
+            var answers = new List<bool>(steps.Length);
+            var sw = Stopwatch.StartNew();
+            int n = steps.Length + 1;
+            var nodes = new PNode[n];
+            nodes[0] = new PNode(0);
+            var pre = new int[n];
+            var post = new int[n];
+            var stack = new Stack<(PNode Node, bool Done)>();
+            foreach (var s in steps) {
+                var c = new PNode(s.Child) { Parent = nodes[s.Parent] };
+                nodes[s.Parent].Kids.Add(c);
+                nodes[s.Child] = c;
+                bool valid = false;                                     // the insertion invalidates the numbers
+                foreach (var (u, v) in s.Queries) {
+                    if (!valid) {
+                        int clock = 0;
+                        stack.Push((nodes[0], false));
+                        while (stack.Count > 0) {
+                            var (x, done) = stack.Pop();
+                            if (done) { post[x.Id] = clock++; continue; }
+                            pre[x.Id] = clock++;
+                            stack.Push((x, true));
+                            for (int k = x.Kids.Count - 1; k >= 0; k--) stack.Push((x.Kids[k], false));
+                        }
+                        valid = true;
+                    }
+                    answers.Add(pre[u] < pre[v] && post[v] < post[u]);
+                }
+            }
+            return (sw.Elapsed.TotalMilliseconds, answers);
+        }
+
+        private static string Factor(double slow, double fast) =>
+            (slow < 10 * fast ? (slow / fast).ToString("F1") : (slow / fast).ToString("N0")) + "×";
+
+        private static void Dynamic(int n, int[] depths, int[] staticSizes, int queriesPerInsert = 1) {
+            RunDTree(Workload(1_000, 10, 1));                           // warm-up (JIT)
+            RunParentWalk(Workload(1_000, 10, 1));
+            RunStaticNumbers(Workload(200, 10, 1));
+            Console.WriteLine($"\nDynamic updates: insertions and queries alternating ({n:N0} nodes, {queriesPerInsert} random query per insertion, node handles)\n");
+            Console.WriteLine("| depth | DTree [µs per step] | parent walk [µs per step] | factor |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: |");
+            foreach (var depth in depths) {
+                var steps = Workload(n, depth, queriesPerInsert);
+                var (d, a) = RunDTree(steps);
+                var (w, b) = RunParentWalk(steps);
+                if (!a.SequenceEqual(b)) throw new InvalidOperationException("DTree and parent walk disagree");
+                Console.WriteLine($"| {depth:N0} | {d * 1000 / steps.Length:F3} | {w * 1000 / steps.Length:F3} | {Factor(w, d)} |");
+            }
+            Console.WriteLine($"\nDynamic updates with static pre/post numbers, recomputed after each insertion (depth 100, {queriesPerInsert} query per insertion)\n");
+            Console.WriteLine("| nodes | DTree [ms] | parent walk [ms] | static numbers [ms] |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: |");
+            foreach (var m in staticSizes) {
+                var steps = Workload(m, 100, queriesPerInsert);
+                var (d, a) = RunDTree(steps);
+                var (w, b) = RunParentWalk(steps);
+                var (r, c) = RunStaticNumbers(steps);
+                if (!a.SequenceEqual(b) || !a.SequenceEqual(c)) throw new InvalidOperationException("answers disagree");
+                Console.WriteLine($"| {m:N0} | {d:F1} | {w:F1} | {r:N0} |");
+            }
         }
 
         /// <summary>A spine (chain) of depth nodes; all other nodes hang at random under spine nodes.</summary>
@@ -798,7 +933,7 @@ namespace DirectedTrees.Tests {
                     var b = us.Select(walk).ToArray();
                     double w = sw.Elapsed.TotalMilliseconds * 1000 / queries;
                     if (!a.SequenceEqual(b)) throw new InvalidOperationException($"{name}: DTree and parent walk disagree");
-                    Console.WriteLine($"| {depth:N0} | {name} | {d:F3} | {w:F1} | {(w < 10 * d ? (w / d).ToString("F1") : (w / d).ToString("N0"))}× |");
+                    Console.WriteLine($"| {depth:N0} | {name} | {d:F3} | {w:F1} | {Factor(w, d)} |");
                 }
             }
             Console.WriteLine($"\n(Building VMin, VMax, UMin and UMax for {k:N0} nodes: {build:F2} ms, once per set.)");

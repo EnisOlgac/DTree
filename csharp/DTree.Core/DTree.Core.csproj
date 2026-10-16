@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>DirectedTrees</RootNamespace>
     <AssemblyName>DTree.Core</AssemblyName>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <Authors>Enis Olgac</Authors>
     <Description>Single-rooted directed tree encoded by two linear projections (Q1, Q2) with O(1) reachability.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

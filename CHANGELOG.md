@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1
+
+Documentation and benchmarks only; the library is unchanged.
+
+- New benchmark for the dynamic case, insertions and queries alternating (`bench.py --dynamic`, `-- bench dynamic`): DTree against the parent walk over increasing depth, and against static pre/post numbers recomputed after each insertion. On Enis Olgac's NUC (C#, 100,000 nodes, one query per insertion; other processes running, so absolute times are indicative), a step costs DTree 1.6–1.9 µs at every depth; the parent walk takes 0.13 µs at depth 10 and 83 µs at depth 100,000. Static numbers need 2.5 s for 20,000 nodes, against 11 ms for DTree, and grow quadratically. Full tables: [`docs/set-queries.md`](docs/set-queries.md).
+- [`docs/set-queries.md`](docs/set-queries.md): the simpler exact way of comparing with each element of a set (suggested by Enis Olgac), a paragraph on dynamic approaches in the literature (link-cut and Euler-tour trees, dynamic LCA, order maintenance), and the general applicability of DTree as the frame for the measurements.
+
 ## 1.4.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23420472.

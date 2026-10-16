@@ -2,6 +2,8 @@
 
 Many questions about a tree concern a set of nodes rather than a single one: does *u* reach all of them, or some of them? Is *v* reached by all of them, or by some? `DTree` answers each of these with one comparison against a *constructed node*, with no climbing through the tree. This page explains the idea, shows where it is exact and where it only filters, and compares it with the classical representation of a tree by parent and child links.
 
+Without a constructed node, `DTree` can also answer each question exactly by comparing with every element of the set; section 7 compares both ways.
+
 The constructed node and the names VMin and VMax are Enis Olgac's, from his presentation "Topology and Structure of Directed Graphs - Inducing a Subgraph" (ResearchGate, May 2021). The naming by role with UMin and UMax is his as well. The two exact tests for "some" (sections 4 and 5) were added by Claude for release 1.4.0.
 
 ## 1. Positions and reachability
@@ -82,19 +84,51 @@ A constructed node stores its members—and for each list the member holding the
 
 The classical representation keeps, for every node, a link to its parent and a list of its children. Reachability is then answered by climbing: *u* reaches *v* if *u* appears on the path from *v* up to the root. That costs O(depth) per question, and set questions multiply it:
 
-| question | parent walk | DTree |
-| --- | --- | --- |
-| *u* reaches *v* | climb from *v*: O(depth) | two comparisons: O(1) |
-| *u* reaches all / some of *S* | climb from every member: O(*k* · depth) | O(1) / O(log *k*) |
-| all / some of *S* reach *v* | climb once from *v*, look each ancestor up in a hash set of *S*: O(depth) | O(1) / O(log *k*) |
+| question | parent walk | DTree, each element | DTree, constructed node |
+| --- | --- | --- | --- |
+| *u* reaches *v* | climb from *v*: O(depth) | two comparisons: O(1) | — |
+| *u* reaches all / some of *S* | climb from every member: O(*k* · depth) | O(*k*) | O(1) / O(log *k*) |
+| all / some of *S* reach *v* | climb once from *v*, look each ancestor up in a hash set of *S*: O(depth) | O(*k*) | O(1) / O(log *k*) |
+
+The simplest exact way in `DTree` needs no constructed node at all: compare *u* (or *v*) with each element of *S*, one `can_reach` per element. That costs O(*k*) and, like everything in `DTree`, does not depend on depth. For "all" it usually stops after the first element, since most nodes fail immediately; for "some" it runs through all *k* elements whenever the answer is no. It is the right choice for small sets or a single query. The constructed node pays off with large sets and many queries against the same set: it replaces the *k* comparisons by one (all) or by a binary search over about log₂ *k* members (some).
 
 There is no counterpart of the constructed node in the linked representation: a combination of "the smallest Q1 of one member with the smallest Q2 of another" has no meaning without the two orders. A classical program can obtain the same power only by computing such orders itself—pre- and post-order numbers from a traversal (Dietz, 1982), or ancestor tables for lowest-common-ancestor queries—and those are static: after an insertion they must be recomputed or repaired. `DTree` maintains both orders incrementally, with the insertion points known in advance, so the numbers are always current.
 
-The price is paid at insertion: a new node takes two list insertions with mediant positions instead of one parent link. The benchmarks in the [changelog](../CHANGELOG.md) show the build times; for single queries on shallow trees the parent walk is as fast as DTree or faster (see below).
+**Dynamic approaches.** The literature does offer structures that stay valid under changes. Link-cut trees (Sleator & Tarjan, 1983) and Euler-tour trees (Henzinger & King, 1999) answer ancestor questions in O(log *n*) amortized, but they restructure balanced search trees on every operation, queries included, and they are hard to implement. Dynamic lowest common ancestors (Cole & Hariharan, 2005) achieve constant time per operation with an intricate construction that is rarely implemented. Order maintenance (Dietz & Sleator, 1987; Bender et al., 2002) keeps positions in a list current under insertions, but it does not say where in a traversal a new node belongs. `DTree` closes exactly that gap: a new child is always the last child of its parent in Q1 and the first child in Q2, so every update is two list insertions at known places, and queries never change the structure. Recomputing static numbers after every insertion, finally, touches all *n* nodes each time—O(*n*²) for *n* insertions—work that serves only the bookkeeping itself.
+
+The price of `DTree` is paid at insertion: a new node takes two list insertions with mediant positions instead of one parent link. With one query per insertion, the parent walk is therefore faster on shallow trees; from moderate depths on, `DTree` is ahead (see the measurements below).
 
 ## 8. Measurements
 
-Measured by Enis Olgac on his NUC (Windows) with Python 3.14.2 and .NET 9.0.21. Each tree has 100,000 nodes: a chain ("spine") of the given depth, with all other nodes attached at random to spine nodes. Every answer of DTree was checked against the parent walk.
+Every method has cases that favor it: the parent walk on shallow trees, comparing each element on small sets, the constructed node on large sets queried often. `DTree` supports all of these with one representation whose positions stay valid under insertions, and none of its answers depends on the depth of the tree. The point of interest is the dynamic case: queries while the tree changes.
+
+Measured by Enis Olgac on his NUC (Windows) with Python 3.14.2 and .NET 9.0.21, with several other processes running at the same time. A second full run with no other programs open showed the same trends but was disturbed by a visible hiccup of the machine (single values up to about ten times off), so the tables below come from the first runs. Absolute times are indicative; the trends—DTree independent of depth, the parent walk growing with it, static numbers growing quadratically—showed up in every run. Unless stated otherwise, each tree has 100,000 nodes: a chain ("spine") of the given depth, with all other nodes attached at random to spine nodes. Every answer of DTree was checked against the other methods.
+
+### Dynamic updates
+
+Insertions and queries alternate: after each insertion, one query between two random nodes present at that moment. Every contender processes the same sequence. A step is one insertion plus one query; C# uses node handles for DTree and a node class with a parent link for the walk. Python: 20,000 nodes; C#: 100,000 nodes.
+
+| depth | Python: DTree | Python: parent walk | factor | C#: DTree | C#: parent walk | factor |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10 | 3.09 µs | 0.38 µs | 0.1× | 1.70 µs | 0.13 µs | 0.1× |
+| 100 | 2.76 µs | 1.41 µs | 0.5× | 1.55 µs | 0.42 µs | 0.3× |
+| 1,000 | 3.37 µs | 12.9 µs | 3.8× | 1.89 µs | 1.42 µs | 0.8× |
+| 10,000 | 3.86 µs | 81.3 µs | 21× | 1.94 µs | 13.3 µs | 6.9× |
+| 100,000 | — | — | — | 1.64 µs | 83.4 µs | 51× |
+
+A step in DTree costs the same at every depth; it is dominated by the insertion (two list insertions and, in both implementations, registering the node under its name). The parent walk inserts almost for free but pays for every query with the depth. With one query per insertion the crossover lies at a depth of a few hundred in Python and between 1,000 and 10,000 in C#; with more queries per insertion it moves towards shallower trees.
+
+Static pre/post numbers answer a query in O(1), but each insertion invalidates them; here they are recomputed by a traversal before the next query (depth 100, one query per insertion, total time):
+
+| nodes | Python: DTree | Python: parent walk | Python: static numbers | C#: DTree | C#: parent walk | C#: static numbers |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 2.6 ms | 1.2 ms | 230 ms | 3.6 ms | 0.1 ms | 4 ms |
+| 2,000 | 5.3 ms | 2.5 ms | 927 ms | — | — | — |
+| 5,000 | 13.5 ms | 6.8 ms | 5,776 ms | — | — | — |
+| 10,000 | — | — | — | 2.6 ms | 0.9 ms | 560 ms |
+| 20,000 | — | — | — | 10.9 ms | 2.1 ms | 2,514 ms |
+
+Doubling the tree roughly quadruples the time of the static numbers: O(*n*²) for *n* insertions, against O(*n*) for DTree and the parent walk. (The C# row for 1,000 nodes is too short to be measured reliably.)
 
 ### Single reachability queries
 
@@ -146,7 +180,9 @@ Reading the table:
 ```
 python python/benchmarks/bench.py                              # full run
 python python/benchmarks/bench.py --quick                      # a few seconds
+python python/benchmarks/bench.py --dynamic                    # only insertions and queries alternating
 dotnet run --project csharp/DTree.Tests -c Release -- bench
+dotnet run --project csharp/DTree.Tests -c Release -- bench dynamic   # only insertions and queries alternating
 ```
 
 ## References
@@ -154,3 +190,8 @@ dotnet run --project csharp/DTree.Tests -c Release -- bench
 - E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," presentation, ResearchGate, May 2021.
 - E. Olgac, "Topology and Structure of Directed Trees: An Incremental Encoding," *Artificial Intelligence*, IntechOpen, 2025. doi: [10.5772/intechopen.1013408](https://doi.org/10.5772/intechopen.1013408).
 - P. F. Dietz, "Maintaining order in a linked list," *STOC 1982*, 122–127.
+- P. F. Dietz, D. D. Sleator, "Two algorithms for maintaining order in a list," *STOC 1987*, 365–372.
+- M. A. Bender, R. Cole, E. D. Demaine, M. Farach-Colton, J. Zito, "Two simplified algorithms for maintaining order in a list," *ESA 2002*, LNCS 2461, 152–164.
+- D. D. Sleator, R. E. Tarjan, "A data structure for dynamic trees," *Journal of Computer and System Sciences* 26(3), 1983, 362–391.
+- M. R. Henzinger, V. King, "Randomized fully dynamic graph algorithms with polylogarithmic time per operation," *Journal of the ACM* 46(4), 1999, 502–516.
+- R. Cole, R. Hariharan, "Dynamic LCA queries on trees," *SIAM Journal on Computing* 34(4), 2005, 894–923.

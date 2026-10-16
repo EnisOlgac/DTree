@@ -5,11 +5,14 @@ Usage (from the python/ folder):
     python benchmarks/bench.py                 # sizes 10,000 and 100,000
     python benchmarks/bench.py 1000 1000000    # custom sizes
     python benchmarks/bench.py --quick         # small sizes, a few seconds
+    python benchmarks/bench.py --dynamic       # only insertions and queries alternating
 
 For each tree shape it reports the build time and how often positions in Q1
 and Q2 had to be renumbered, then times the queries and structural changes.
 Finally it compares reachability with the parent walk of classical doubly linked
-trees, for single pairs and for set queries (VMin, VMax, UMin, UMax), over increasing depth.
+trees, for single pairs and for set queries (VMin, VMax, UMin, UMax), over increasing depth,
+and under dynamic updates, with insertions and queries alternating (including static
+pre/post numbers recomputed after each insertion).
 Timings depend on the machine; the renumbering counts do not.
 """
 
@@ -177,7 +180,7 @@ def bench_depth(n, depths, queries):
         b = [parent_walk(parent, u, v) for u, v in pairs]
         w = time.perf_counter() - start
         assert a == b
-        row(f"{depth:,}", f"{d / queries * 1e6:.2f}", f"{w / queries * 1e6:.2f}", f"{w / d:,.1f}×")
+        row(f"{depth:,}", f"{d / queries * 1e6:.2f}", f"{w / queries * 1e6:.2f}", factor(w, d))
 
 
 def bench_sets(n, depths, k, queries):
@@ -209,15 +212,113 @@ def bench_sets(n, depths, k, queries):
             b = [walk_q(u) for u in U]
             w = time.perf_counter() - start
             assert a == b, name
-            row(f"{depth:,}", name, f"{d / queries * 1e6:.2f}", f"{w / queries * 1e6:.1f}", f"{w / d:.1f}×" if w < 10 * d else f"{w / d:,.0f}×")
+            row(f"{depth:,}", name, f"{d / queries * 1e6:.2f}", f"{w / queries * 1e6:.1f}", factor(w, d))
     print(f"\n(Building VMin, VMax, UMin and UMax for {k:,} nodes: {build * 1e3:.1f} ms, once per set.)")
+
+
+def factor(slow, fast):
+    return f"{slow / fast:.1f}×" if slow < 10 * fast else f"{slow / fast:,.0f}×"
+
+
+def dynamic_workload(n, depth, queries_per_insert, seed=5):
+    """The same sequence for every contender: insertions (a spine of `depth` nodes, the
+    others attached at random to spine nodes) with random queries among the nodes present."""
+    rnd = random.Random(seed)
+    steps = []
+    for i in range(1, n):
+        parent = i - 1 if i < depth else rnd.randrange(min(depth, i))
+        qs = [(rnd.randrange(i + 1), rnd.randrange(i + 1)) for _ in range(queries_per_insert)]
+        steps.append((parent, i, qs))
+    return steps
+
+
+def run_dtree(steps):
+    t, answers = DTree("D"), []
+    for p, c, qs in steps:
+        t.insert(f"n{p}", f"n{c}")
+        for u, v in qs:
+            answers.append(t.can_reach(f"n{u}", f"n{v}"))
+    return answers
+
+
+def run_parent_walk(steps):
+    parent, answers = {}, []
+    for p, c, qs in steps:
+        parent[c] = p
+        for u, v in qs:
+            answers.append(parent_walk(parent, u, v))
+    return answers
+
+
+def run_static_numbers(steps):
+    """Pre- and post-order numbers from a traversal, recomputed before a query whenever the
+    tree has changed: O(1) queries, but every insertion invalidates all numbers."""
+    children, answers = {}, []
+    pre = post = None
+    for p, c, qs in steps:
+        children.setdefault(p, []).append(c)
+        pre = None                                     # the insertion invalidates the numbers
+        for u, v in qs:
+            if pre is None:
+                pre, post, clock = {}, {}, 0
+                stack = [(0, False)]
+                while stack:
+                    x, done = stack.pop()
+                    if done:
+                        post[x] = clock
+                        clock += 1
+                        continue
+                    pre[x] = clock
+                    clock += 1
+                    stack.append((x, True))
+                    stack.extend((k, False) for k in reversed(children.get(x, ())))
+            answers.append(pre[u] < pre[v] and post[v] < post[u])
+    return answers
+
+
+def timed(run, steps):
+    start = time.perf_counter()
+    answers = run(steps)
+    return time.perf_counter() - start, answers
+
+
+def bench_dynamic(n, depths, static_sizes, queries_per_insert=1):
+    print(f"\n### Dynamic updates: insertions and queries alternating "
+          f"({n:,} nodes, {queries_per_insert} random query per insertion)\n")
+    row("depth", "DTree [µs per step]", "parent walk [µs per step]", "factor")
+    row("---:", "---:", "---:", "---:")
+    for depth in depths:
+        steps = dynamic_workload(n, depth, queries_per_insert)
+        d, a = timed(run_dtree, steps)
+        w, b = timed(run_parent_walk, steps)
+        assert a == b
+        row(f"{depth:,}", f"{d / len(steps) * 1e6:.2f}", f"{w / len(steps) * 1e6:.2f}", factor(w, d))
+    print(f"\n### Dynamic updates with static pre/post numbers, recomputed after each insertion "
+          f"(depth 100, {queries_per_insert} query per insertion)\n")
+    row("nodes", "DTree [ms]", "parent walk [ms]", "static numbers [ms]")
+    row("---:", "---:", "---:", "---:")
+    for m in static_sizes:
+        steps = dynamic_workload(m, 100, queries_per_insert)
+        d, a = timed(run_dtree, steps)
+        w, b = timed(run_parent_walk, steps)
+        r, c = timed(run_static_numbers, steps)
+        assert a == b == c
+        row(f"{m:,}", f"{d * 1e3:,.1f}", f"{w * 1e3:,.1f}", f"{r * 1e3:,.0f}")
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("sizes", nargs="*", type=int, help="tree sizes (default: 10000 100000)")
     ap.add_argument("--quick", action="store_true", help="small sizes for a fast check")
+    ap.add_argument("--dynamic", action="store_true", help="only the dynamic updates")
     args = ap.parse_args()
+    if args.dynamic:
+        print(f"DTree benchmarks, Python {sys.version.split()[0]}")
+        if args.quick:
+            bench_dynamic(5_000, [10, 100, 1_000], [500, 1_000, 2_000])
+        else:
+            bench_dynamic(20_000, [10, 100, 1_000, 10_000], [1_000, 2_000, 5_000])
+        return
     sizes = [1_000, 10_000] if args.quick else (args.sizes or [10_000, 100_000])
     print(f"DTree benchmarks, Python {sys.version.split()[0]}")
     bench_build(sizes)
@@ -226,9 +327,11 @@ def main():
     if args.quick:
         bench_depth(10_000, [10, 100, 1_000, 10_000], 20_000)
         bench_sets(10_000, [10, 100, 1_000], 100, 200)
+        bench_dynamic(5_000, [10, 100, 1_000], [500, 1_000, 2_000])
     else:
         bench_depth(100_000, [10, 100, 1_000, 10_000, 100_000], 20_000)
         bench_sets(100_000, [10, 100, 1_000, 10_000], 1_000, 200)
+        bench_dynamic(20_000, [10, 100, 1_000, 10_000], [1_000, 2_000, 5_000])
 
 
 if __name__ == "__main__":
