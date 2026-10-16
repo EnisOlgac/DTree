@@ -129,7 +129,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.1.0, Zenodo, 2026. doi: [10.5281/zenodo.23397159](https://doi.org/10.5281/zenodo.23397159) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.3.0, Zenodo, 2026. doi: [10.5281/zenodo.23414463](https://doi.org/10.5281/zenodo.23414463) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 
