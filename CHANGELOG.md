@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+**Node handles in C#** (`DTree.Core`): `Insert` now returns a `DNode` handle, and every operation also accepts handles (`Insert(DNode, string)`, `CanReach(DNode, DNode)`, `Delete`, `DeleteSubtree`, `CutNPaste`, `IsRoot`, `IsLeaf`, `Depth`, …; `GetNode(name)` and `TryGetNode` give the handle of a named node). A handle refers directly to the node's positions in Q1 and Q2, so a reachability test on handles is two position comparisons with no lookup by name. Inside `DTree`, parents and children are kept as direct references, too; names are only looked up where a method receives a name. The idea of using addresses as ids comes from Enis Olgac's original implementation. Handles of deleted nodes, or of another tree, are rejected or reported as unreachable. The name-based API is unchanged.
+
+Reachability on a random tree of 100,000 nodes, 1,000,000 queries (`dotnet run --project csharp/DTree.Tests -c Release -- bench 10000 100000`, same Windows PC as for 1.2.0):
+
+| `CanReach` per call | 1.2.0 | 1.3.0 |
+| --- | ---: | ---: |
+| C#, with names | 0.369 µs | 0.181 µs |
+| C#, with node handles | — | 0.085 µs |
+| Python 1.2.0 / 1.3.0, with names (for comparison) | 1.4 µs | 1.4 µs |
+
+With names, `CanReach` now does two dictionary lookups instead of six; with handles it does none, which makes it about 4× faster than in 1.2.0 and about 16× faster than the Python implementation. Building trees takes as long as in 1.2.0 (random tree of 100,000 nodes: 0.24 s), since every new node is still registered by name; renumbering counts are unchanged.
+
 ## 1.2.0
 
 **C# implementation** (`csharp/DTree.Core`): a port of the Python 1.1.0 implementation with the same API in C# naming and the same rational (mediant) positions, stored as 64-bit numerator/denominator pairs and compared with 128-bit products. A test program (`csharp/DTree.Tests`) mirrors the Python test suite and includes the benchmark (`-- bench`). The automatic checks now also run the C# tests.

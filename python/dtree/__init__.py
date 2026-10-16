@@ -3,4 +3,4 @@
 from .dtree import SINK, SOURCE, DList, DTree
 
 __all__ = ["DTree", "DList", "SOURCE", "SINK"]
-__version__ = "1.2.0"
+__version__ = "1.3.0"

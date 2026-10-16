@@ -87,6 +87,11 @@ t.Insert("A", "B");
 t.Insert("B", "C");
 t.CanReach("A", "C");   // true
 t.PathToRoot("C");      // ["C", "B", "A"]
+
+// Node handles skip the lookup by name:
+DNode a = t.GetNode("A"), c = t.GetNode("C");
+t.CanReach(a, c);       // true, two position comparisons
+DNode d = t.Insert(a, "D");
 ```
 
 [`csharp/Tree.View/`](csharp/Tree.View/) is a WPF viewer (Windows only) built on `DTree.Core`: *Select DiTree* opens a `.csx` file from [`examples/`](examples/), lists the inserted edges, and draws the tree once along `Q1` and once along `Q2`. Open `csharp/DTree.sln` in Visual Studio and start `Tree.View`.

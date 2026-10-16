@@ -1,6 +1,36 @@
 namespace DirectedTrees {
 
     /// <summary>
+    /// Handle of a node in a <see cref="DTree"/>. It refers directly to the node's positions in
+    /// Q1 and Q2, so reachability tests on handles need no lookup by name.
+    /// </summary>
+    public sealed class DNode {
+        internal DNode(string name, DTree? owner) {
+            Name = name;
+            Owner = owner;
+        }
+
+        public string Name { get; }
+
+        internal DTree? Owner;                  // null once the node has been removed
+        internal DNode? Up;                     // parent; the SOURCE sentinel for the root
+        internal List<DNode>? Kids;             // children in insertion order (Q1 order)
+        internal DList.Cell C1 = null!;         // position in Q1
+        internal DList.Cell C2 = null!;         // position in Q2
+
+        /// <summary>The parent node; null for the root.</summary>
+        public DNode? Parent => Up == null || Up.Owner == null ? null : Up;
+
+        /// <summary>The children in insertion order (a copy).</summary>
+        public IReadOnlyList<DNode> Children => Kids == null ? Array.Empty<DNode>() : Kids.ToArray();
+
+        /// <summary>False once the node has been deleted from its tree.</summary>
+        public bool IsInTree => Owner != null;
+
+        public override string ToString() => Name;
+    }
+
+    /// <summary>
     /// Single-rooted directed tree encoded by two linear projections Q1 and Q2.
     /// </summary>
     /// <remarks>
@@ -8,12 +38,15 @@ namespace DirectedTrees {
     /// with siblings right to left. Node u reaches node v if and only if u strictly precedes v
     /// in both Q1 and Q2 (irreflexive: no node reaches itself). A new child is the last child of
     /// its parent in Q1 and the first in Q2, so every change is local to both lists.
-    /// Design and API: Enis Olgac. This C# version mirrors the Python reference implementation
-    /// (1.1.0), which was written with Claude (Anthropic).
+    /// Every method is available with node names and, for speed, with <see cref="DNode"/>
+    /// handles, which refer to their positions directly (the idea of using addresses as ids is
+    /// Enis Olgac's, from his original implementation).
+    /// Design and API: Enis Olgac. This C# version mirrors the Python reference implementation,
+    /// which was written with Claude (Anthropic).
     /// </remarks>
     public sealed class DTree {
-        private readonly Dictionary<string, string> _parent = new();               // child -> parent (root -> SOURCE)
-        private readonly Dictionary<string, List<string>> _children = new();       // parent -> children, insertion order
+        private readonly Dictionary<string, DNode> _nodes = new();
+        private readonly DNode _source;         // sentinel: parent of the root
         private readonly DList _q1;
         private readonly DList _q2;
         private readonly List<string> _edgeLog = new();
@@ -22,6 +55,7 @@ namespace DirectedTrees {
             TreeId = treeId;
             _q1 = new DList(treeId + ".Q1");
             _q2 = new DList(treeId + ".Q2");
+            _source = new DNode(Marker.Source, null) { C1 = _q1.FirstCell, C2 = _q2.FirstCell };
         }
 
         public string TreeId { get; }
@@ -47,122 +81,132 @@ namespace DirectedTrees {
         }
 
         /// <summary>
-        /// Add the edge parent -> child. The first call makes parent the root; afterwards parent
-        /// must already exist and child must not.
+        /// Add the edge parent -> child and return the child's handle. The first call makes parent
+        /// the root; afterwards parent must already exist and child must not.
         /// </summary>
-        public void Insert(string parent, string child) {
+        public DNode Insert(string parent, string child) {
             if (IsMarker(parent) || IsMarker(child))
                 throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes");
-            if (_parent.Count == 0)
-                Attach(Marker.Source, parent);
-            else if (!_parent.ContainsKey(parent))
+            if (_nodes.Count == 0) {
+                if (parent == child) throw new ArgumentException($"child '{child}' is already in the tree");
+                Attach(_source, NewNode(parent));
+            }
+            if (!_nodes.TryGetValue(parent, out var p))
                 throw new KeyNotFoundException($"parent '{parent}' is not in the tree");
-            if (_parent.ContainsKey(child))
-                throw new ArgumentException($"child '{child}' is already in the tree");
-            Attach(parent, child);
-            _edgeLog.Add($"({parent}, {child})");
+            return InsertUnder(p, child);
+        }
+
+        /// <summary>Add a child under an existing node handle and return the child's handle.</summary>
+        public DNode Insert(DNode parent, string child) {
+            Own(parent);
+            if (IsMarker(child)) throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes");
+            return InsertUnder(parent, child);
+        }
+
+        private DNode InsertUnder(DNode parent, string child) {
+            if (_nodes.ContainsKey(child)) throw new ArgumentException($"child '{child}' is already in the tree");
+            var c = NewNode(child);
+            Attach(parent, c);
+            _edgeLog.Add($"({parent.Name}, {child})");
+            return c;
         }
 
         private static bool IsMarker(string v) => v == Marker.Source || v == Marker.Sink;
 
-        private void Attach(string parent, string child) {
-            var end = SubtreeEndQ1(parent);
-            _q2.InsertAfter(child, parent);
-            _q1.InsertBefore(child, end);
-            _parent[child] = parent;
-            ChildList(parent).Add(child);
+        private DNode NewNode(string name) {
+            var n = new DNode(name, this);
+            _nodes[name] = n;
+            return n;
         }
 
-        private List<string> ChildList(string parent) {
-            if (!_children.TryGetValue(parent, out var list)) {
-                list = new List<string>();
-                _children[parent] = list;
-            }
-            return list;
+        private void Attach(DNode parent, DNode child) {
+            var last = SubtreeLast(parent, true);
+            child.C2 = _q2.InsertNewAfter(child.Name, parent.C2);   // first child in Q2
+            child.C1 = _q1.InsertNewAfter(child.Name, last.C1);     // last child in Q1
+            child.Up = parent;
+            (parent.Kids ??= new List<DNode>()).Add(child);
         }
-
-        /// <summary>First node after u in Q1 that u cannot reach (may be SINK).</summary>
-        private string SubtreeEndQ1(string u) => _q1.Next(SubtreeLast(u, _q1))!;
 
         /// <summary>
-        /// Last node of u's subtree in projection q, in O(depth): Q1 lists children in insertion
-        /// order (follow last children), Q2 reverses siblings (follow first children).
+        /// Last node of u's subtree in Q1 (follow last children) or Q2 (follow first children), in O(depth).
         /// </summary>
-        private string SubtreeLast(string u, DList q) {
-            bool last = ReferenceEquals(q, _q1);
+        private static DNode SubtreeLast(DNode u, bool q1) {
             var w = u;
-            while (_children.TryGetValue(w, out var kids)) w = last ? kids[^1] : kids[0];
+            while (w.Kids is { Count: > 0 } kids) w = q1 ? kids[^1] : kids[0];
             return w;
         }
 
         // -- structural reconfiguration -------------------------------------------
 
         /// <summary>Remove node; its children are re-attached to its parent, in its place. The root cannot be deleted.</summary>
-        public void Delete(string node) {
-            Require(node);
-            if (IsRoot(node)) throw new InvalidOperationException("the root cannot be deleted");
-            var parent = _parent[node];
-            _parent.Remove(node);
-            var kids = _children.TryGetValue(node, out var k) ? k : new List<string>();
-            _children.Remove(node);
-            var siblings = _children[parent];
+        public void Delete(string node) => Delete(Require(node));
+
+        public void Delete(DNode node) {
+            Own(node);
+            if (node.Up == _source) throw new InvalidOperationException("the root cannot be deleted");
+            var parent = node.Up!;
+            var siblings = parent.Kids!;
             int i = siblings.IndexOf(node);
             siblings.RemoveAt(i);
-            siblings.InsertRange(i, kids);
-            foreach (var c in kids) _parent[c] = parent;
-            if (siblings.Count == 0) _children.Remove(parent);
-            _q1.Remove(node);
-            _q2.Remove(node);
+            if (node.Kids != null) {
+                siblings.InsertRange(i, node.Kids);
+                foreach (var c in node.Kids) c.Up = parent;
+            }
+            _q1.RemoveCell(node.C1);
+            _q2.RemoveCell(node.C2);
+            Forget(node);
         }
 
-        /// <summary>Remove node together with all its descendants; returns them in Q1 order.</summary>
-        public List<string> DeleteSubtree(string node) {
-            Require(node);
-            if (IsRoot(node)) throw new InvalidOperationException("the root cannot be deleted");
-            var last1 = SubtreeLast(node, _q1);
-            var last2 = SubtreeLast(node, _q2);
-            var removed = _q1.CutBlock(node, last1);
-            _q2.CutBlock(node, last2);
-            var parent = _parent[node];
-            _children[parent].Remove(node);
-            if (_children[parent].Count == 0) _children.Remove(parent);
-            foreach (var v in removed) {
-                _parent.Remove(v);
-                _children.Remove(v);
-            }
-            return removed;
+        /// <summary>Remove node together with all its descendants; returns their names in Q1 order.</summary>
+        public List<string> DeleteSubtree(string node) => DeleteSubtree(Require(node));
+
+        public List<string> DeleteSubtree(DNode node) {
+            Own(node);
+            if (node.Up == _source) throw new InvalidOperationException("the root cannot be deleted");
+            var removed = SubtreeNodes(node);
+            _q1.CutBlockCells(node.C1, SubtreeLast(node, true).C1);
+            _q2.CutBlockCells(node.C2, SubtreeLast(node, false).C2);
+            node.Up!.Kids!.Remove(node);
+            foreach (var n in removed) Forget(n);
+            return removed.Select(n => n.Name).ToList();
         }
 
         /// <summary>
         /// Detach the subtree rooted at subtreeRoot and attach it as the last child of newParent.
         /// newParent must not lie inside the moved subtree; the root cannot be moved.
         /// </summary>
-        public void CutNPaste(string subtreeRoot, string newParent) {
-            Require(subtreeRoot);
-            Require(newParent);
-            if (IsRoot(subtreeRoot)) throw new InvalidOperationException("the root cannot be moved");
-            if (newParent == subtreeRoot || CanReach(subtreeRoot, newParent))
-                throw new InvalidOperationException("newParent lies inside the subtree being moved");
+        public void CutNPaste(string subtreeRoot, string newParent) => CutNPaste(Require(subtreeRoot), Require(newParent));
+
+        public void CutNPaste(DNode subtreeRoot, DNode newParent) {
+            Own(subtreeRoot);
+            Own(newParent);
             var u = subtreeRoot;
-            var last1 = SubtreeLast(u, _q1);
-            var last2 = SubtreeLast(u, _q2);
-            var block1 = _q1.CutBlock(u, last1);
-            var block2 = _q2.CutBlock(u, last2);
-            var old = _parent[u];
-            _children[old].Remove(u);
-            if (_children[old].Count == 0) _children.Remove(old);
+            if (u.Up == _source) throw new InvalidOperationException("the root cannot be moved");
+            if (newParent == u || CanReach(u, newParent))
+                throw new InvalidOperationException("newParent lies inside the subtree being moved");
+            var block1 = _q1.CutBlockCells(u.C1, SubtreeLast(u, true).C1);
+            var block2 = _q2.CutBlockCells(u.C2, SubtreeLast(u, false).C2);
+            u.Up!.Kids!.Remove(u);
             // Same placement rule as Insert: Q2 right after the parent,
             // Q1 right after the current last node of the parent's subtree.
-            var last = SubtreeLast(newParent, _q1);
-            _q2.PasteBlockAfter(block2, newParent);
-            _q1.PasteBlockAfter(block1, last);
-            _parent[u] = newParent;
-            ChildList(newParent).Add(u);
+            var last = SubtreeLast(newParent, true);
+            _q2.PasteCellsAfter(block2, newParent.C2);
+            _q1.PasteCellsAfter(block1, last.C1);
+            u.Up = newParent;
+            (newParent.Kids ??= new List<DNode>()).Add(u);
+        }
+
+        private void Forget(DNode n) {
+            _nodes.Remove(n.Name);
+            n.Owner = null;
+            n.Up = null;
+            n.Kids = null;
         }
 
         // -- accessors -------------------------------------------------------------
 
-        public string? Root => _children.TryGetValue(Marker.Source, out var kids) && kids.Count > 0 ? kids[0] : null;
+        public string? Root => RootNode?.Name;
+        public DNode? RootNode => _source.Kids is { Count: > 0 } k ? k[0] : null;
         public string Source => Marker.Source;
         public string Sink => Marker.Sink;
 
@@ -172,65 +216,80 @@ namespace DirectedTrees {
         /// <summary>The Q2 projection itself, for list-level checks. Read it; change the tree only through DTree.</summary>
         public DList Q2 => _q2;
 
-        public int Size => _parent.Count;
+        public int Size => _nodes.Count;
         public List<string> Nodes => _q1.ToList();
         public string EdgeLog => string.Join("\n", _edgeLog);
 
         public override string ToString() => $"DTree('{TreeId}', size={Size})\n  {_q1}\n  {_q2}";
 
+        /// <summary>Handle of the node with this name. Throws if absent.</summary>
+        public DNode GetNode(string name) => Require(name);
+
+        public bool TryGetNode(string name, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out DNode node) => _nodes.TryGetValue(name, out node);
+
         // -- queries ---------------------------------------------------------------
 
-        public bool Contains(string node) => _parent.ContainsKey(node);
+        public bool Contains(string node) => _nodes.ContainsKey(node);
 
         /// <summary>Parent of node; null for the root. Throws if node is absent.</summary>
-        public string? GetParent(string node) {
-            Require(node);
-            var p = _parent[node];
-            return p == Marker.Source ? null : p;
-        }
+        public string? GetParent(string node) => Require(node).Parent?.Name;
 
         public List<string> Children(string node) {
-            Require(node);
-            return _children.TryGetValue(node, out var kids) ? new List<string>(kids) : new List<string>();
+            var n = Require(node);
+            return n.Kids == null ? new List<string>() : n.Kids.Select(c => c.Name).ToList();
         }
 
         /// <summary>True if there is a directed path of length at least 1 from u to v (irreflexive).</summary>
         public bool CanReach(string u, string v) =>
-            _q1.Contains(u) && _q1.Contains(v) && _q1.Precedes(u, v) && _q2.Precedes(u, v);
+            _nodes.TryGetValue(u, out var a) && _nodes.TryGetValue(v, out var b) && Reaches(a, b);
+
+        /// <summary>Reachability on handles: two position comparisons, no lookup. False for removed nodes.</summary>
+        public bool CanReach(DNode u, DNode v) => u.Owner == this && v.Owner == this && Reaches(u, v);
+
+        private static bool Reaches(DNode u, DNode v) => DList.Less(u.C1, v.C1) && DList.Less(u.C2, v.C2);
 
         public bool CanNotReach(string u, string v) => !CanReach(u, v);
+        public bool CanNotReach(DNode u, DNode v) => !CanReach(u, v);
 
         public bool IsRoot(string node) => node == Root;
+        public bool IsRoot(DNode node) => node.Owner == this && node.Up == _source;
 
-        public bool IsLeaf(string node) {
-            Require(node);
-            return !_children.ContainsKey(node);
+        public bool IsLeaf(string node) => IsLeaf(Require(node));
+        public bool IsLeaf(DNode node) {
+            Own(node);
+            return node.Kids is not { Count: > 0 };
         }
 
         /// <summary>True if u is a proper ancestor of v.</summary>
-        public bool IsAncestor(string u, string v) => Contains(u) && Contains(v) && CanReach(u, v);
+        public bool IsAncestor(string u, string v) => CanReach(u, v);
+        public bool IsAncestor(DNode u, DNode v) => CanReach(u, v);
 
         /// <summary>True if u lies below v. Equivalent to IsAncestor(v, u).</summary>
         public bool IsDescendant(string u, string v) => IsAncestor(v, u);
+        public bool IsDescendant(DNode u, DNode v) => IsAncestor(v, u);
 
         /// <summary>True if both nodes are in this tree (and so share its root).</summary>
         public bool SameSubtree(string u, string v) => Contains(u) && Contains(v);
 
         /// <summary>Nodes of the subtree rooted at node, in Q1 order.</summary>
-        public List<string> Subtree(string node) {
-            Require(node);
-            var result = new List<string> { node };
-            for (var v = _q1.Next(node)!; v != Marker.Sink && CanReach(node, v); v = _q1.Next(v)!) result.Add(v);
+        public List<string> Subtree(string node) => SubtreeNodes(Require(node)).Select(n => n.Name).ToList();
+
+        private List<DNode> SubtreeNodes(DNode node) {
+            var result = new List<DNode>();
+            var end = SubtreeLast(node, true).C1;
+            for (var c = node.C1; ; c = c.Next!) {
+                result.Add(_nodes[c.Name]);
+                if (c == end) break;
+            }
             return result;
         }
 
-        public int SubtreeSize(string node) => Subtree(node).Count;
+        public int SubtreeSize(string node) => SubtreeNodes(Require(node)).Count;
 
         /// <summary>[node, parent, ..., root].</summary>
         public List<string> PathToRoot(string node) {
-            Require(node);
             var result = new List<string>();
-            for (var v = node; v != Marker.Source; v = _parent[v]) result.Add(v);
+            for (var n = Require(node); n != _source; n = n.Up!) result.Add(n.Name);
             return result;
         }
 
@@ -243,21 +302,33 @@ namespace DirectedTrees {
 
         /// <summary>Nodes from u down to v, both included; [u] when u == v.</summary>
         public List<string> Path(string u, string v) {
-            if (u != v && !CanReach(u, v)) throw new InvalidOperationException($"'{u}' cannot reach '{v}'");
-            var result = new List<string> { v };
-            for (var w = v; w != u;) {
-                w = _parent[w];
-                result.Add(w);
+            var a = Require(u);
+            var b = Require(v);
+            if (a != b && !Reaches(a, b)) throw new InvalidOperationException($"'{u}' cannot reach '{v}'");
+            var result = new List<string>();
+            for (var n = b; ; n = n.Up!) {
+                result.Add(n.Name);
+                if (n == a) break;
             }
             result.Reverse();
             return result;
         }
 
         /// <summary>Distance from the root; the root has depth 0.</summary>
-        public int Depth(string node) => PathToRoot(node).Count - 1;
+        public int Depth(string node) => Depth(Require(node));
 
-        private void Require(string node) {
-            if (!_parent.ContainsKey(node)) throw new KeyNotFoundException($"node '{node}' is not in the tree");
+        public int Depth(DNode node) {
+            Own(node);
+            int d = 0;
+            for (var n = node.Up!; n != _source; n = n.Up!) d++;
+            return d;
+        }
+
+        private DNode Require(string node) =>
+            _nodes.TryGetValue(node, out var n) ? n : throw new KeyNotFoundException($"node '{node}' is not in the tree");
+
+        private void Own(DNode node) {
+            if (node.Owner != this) throw new ArgumentException($"node '{node.Name}' does not belong to this tree");
         }
     }
 }

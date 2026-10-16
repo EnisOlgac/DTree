@@ -37,6 +37,7 @@ namespace DirectedTrees.Tests {
                 ("alternating worst case", Tests.AlternatingWorstCase),
                 ("growth at both ends", Tests.GrowthAtBothEnds),
                 ("random list operations", Tests.RandomListOperations),
+                ("node handles", Tests.NodeHandles),
             };
             var total = Stopwatch.StartNew();
             foreach (var (name, body) in tests) {
@@ -172,7 +173,7 @@ namespace DirectedTrees.Tests {
         }
     }
 
-    internal static class Tests {
+    internal static partial class Tests {
         private static void Check(bool c, string m) => Program.Check(c, m);
         private static void Seq<T>(IEnumerable<T> a, IEnumerable<T> e, string m) => Program.Seq(a, e, m);
         private static void Equal<T>(T a, T e, string m) => Program.Equal(a, e, m);
@@ -200,6 +201,7 @@ namespace DirectedTrees.Tests {
                     Equal(t.CanReach(u, v), expected, $"CanReach({u}, {v})");
                     Equal(t.IsAncestor(u, v), expected, $"IsAncestor({u}, {v})");
                     Equal(t.IsDescendant(v, u), expected, $"IsDescendant({v}, {u})");
+                    Equal(t.CanReach(t.GetNode(u), t.GetNode(v)), expected, $"CanReach(handle {u}, handle {v})");
                 }
         }
 
@@ -464,6 +466,35 @@ namespace DirectedTrees.Tests {
         }
     }
 
+    internal static partial class Tests {
+        public static void NodeHandles() {
+            var t = new DTree();
+            var b = t.Insert("A", "B");
+            var c = t.Insert(b, "C");
+            var d = t.Insert("A", "D");
+            var a = t.GetNode("A");
+            Equal(b.Name, "B", "Insert returns the child's handle");
+            Check(t.CanReach(a, c) && t.CanReach(b, c), "handles: ancestors reach C");
+            Check(!t.CanReach(c, a) && !t.CanReach(b, d) && !t.CanReach(c, c), "handles: no other reachability");
+            Check(t.IsRoot(a) && !t.IsRoot(b), "IsRoot on handles");
+            Equal(t.Depth(c), 2, "Depth on handle");
+            Check(c.Parent == b && a.Parent == null, "Parent on handles");
+            Seq(a.Children.Select(n => n.Name), new[] { "B", "D" }, "Children on handle");
+            Check(t.TryGetNode("D", out var d2) && d2 == d && !t.TryGetNode("X", out _), "TryGetNode");
+            t.CutNPaste(c, d);
+            Check(t.CanReach(d, c) && !t.CanReach(b, c), "CutNPaste on handles");
+            t.Delete(b);
+            Check(!b.IsInTree && !t.CanReach(a, b), "deleted handle no longer reaches or is reached");
+            Throws<ArgumentException>(() => t.Insert(b, "E"), "Insert under a deleted handle");
+            var other = new DTree("other");
+            var x = other.Insert("X", "Y");
+            Check(!t.CanReach(a, x), "handles of another tree are not reachable");
+            Throws<ArgumentException>(() => t.Delete(x), "Delete with a handle of another tree");
+            Equal(t.DeleteSubtree(d).Count, 2, "DeleteSubtree on handle removes D and C");
+            Check(!c.IsInTree && t.Size == 1, "only the root is left");
+        }
+    }
+
     internal static class Bench {
         private static readonly (string Name, Func<int, List<string>, Random, string> Parent)[] Shapes = {
             ("random", (i, names, rnd) => names[rnd.Next(names.Count)]),
@@ -507,7 +538,14 @@ namespace DirectedTrees.Tests {
             int hits = 0;
             foreach (var (u, v) in pairs) if (tree.CanReach(u, v)) hits++;
             double perQuery = sw.Elapsed.TotalMilliseconds * 1000 / queries;
-            Console.WriteLine($"\nCanReach on a random tree of {big:N0} nodes: {perQuery:F3} µs per call ({hits:N0} of {queries:N0} reachable)");
+            Console.WriteLine($"\nCanReach on a random tree of {big:N0} nodes: {perQuery:F3} µs per call with names ({hits:N0} of {queries:N0} reachable)");
+            var handles = new (DNode, DNode)[queries];
+            for (int i = 0; i < queries; i++) handles[i] = (tree.GetNode(pairs[i].Item1), tree.GetNode(pairs[i].Item2));
+            sw.Restart();
+            int hits2 = 0;
+            foreach (var (u, v) in handles) if (tree.CanReach(u, v)) hits2++;
+            double perHandle = sw.Elapsed.TotalMilliseconds * 1000 / queries;
+            Console.WriteLine($"CanReach on a random tree of {big:N0} nodes: {perHandle:F3} µs per call with node handles ({hits2:N0} reachable)");
         }
     }
 }

@@ -28,7 +28,7 @@ namespace DirectedTrees {
         private const double Slack = 16.0;      // minimum spacing (in 1/Q) after renumbering
         private const double Growth = 2.0;      // each doubling of the region raises the spacing
 
-        private sealed class Cell {
+        internal sealed class Cell {
             internal readonly string Name;
             internal Cell? Prev;
             internal Cell? Next;
@@ -174,6 +174,55 @@ namespace DirectedTrees {
                 return cell;
             }
             return New(name);
+        }
+
+        // -- cell-level operations for DTree's node handles ------------------------
+
+        internal Cell FirstCell => _first;
+        internal Cell LastCell => _last;
+        internal Cell CellOf(string name) => Get(name);
+
+        /// <summary>x lies strictly left of y (exact rational comparison).</summary>
+        internal static bool Less(Cell x, Cell y) {
+            if (x.Den != 0 && y.Den != 0) return (Int128)x.Num * y.Den < (Int128)y.Num * x.Den;
+            return Lt(x, y);
+        }
+
+        /// <summary>Create a cell for a new name directly after anchor.</summary>
+        internal Cell InsertNewAfter(string name, Cell anchor) {
+            if (_cells.ContainsKey(name)) throw new ArgumentException($"'{name}' is already in {Name}");
+            var cell = New(name);
+            LinkAfter(cell, anchor);
+            return cell;
+        }
+
+        internal void RemoveCell(Cell cell) {
+            Unlink(cell);
+            _cells.Remove(cell.Name);
+        }
+
+        /// <summary>Remove the contiguous block a..b and return its cells in order.</summary>
+        internal List<Cell> CutBlockCells(Cell a, Cell b) {
+            var cells = new List<Cell>();
+            for (var c = a; ; c = c.Next!) {
+                cells.Add(c);
+                if (c == b) break;
+            }
+            a.Prev!.Next = b.Next;
+            b.Next!.Prev = a.Prev;
+            a.Prev = null;
+            b.Next = null;
+            foreach (var c in cells) _cells.Remove(c.Name);
+            return cells;
+        }
+
+        /// <summary>Re-insert cut cells in order directly after anchor (new positions are assigned).</summary>
+        internal void PasteCellsAfter(List<Cell> cells, Cell anchor) {
+            foreach (var c in cells) {
+                _cells[c.Name] = c;
+                LinkAfter(c, anchor);
+                anchor = c;
+            }
         }
 
         // -- public (names follow List.cs) ---------------------------------------
