@@ -21,6 +21,8 @@ obj/
 TestResults/
 packages/
 *.nupkg
+*.snupkg
+nupkg/
 
 # --- OS / editors ---
 .DS_Store

@@ -1,6 +1,12 @@
 # DTree for Python
 
-Python implementation of the `DTree` API (see [`../docs/API.md`](../docs/API.md)). No dependencies; Python 3.8+.
+Python implementation of `DTree`, the incremental encoding of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/DTree/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). No dependencies; Python 3.8+.
+
+```
+pip install dtree-encoding
+```
+
+The package is imported as `dtree`.
 
 ```python
 from dtree import DTree
@@ -22,7 +28,7 @@ t.delete_subtree("D")    # removes D and C
 Load one of the example files (`parent: child1; child2` per line):
 
 ```python
-t = DTree.from_file("../examples/Test.csx")
+t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 ```
 
 ## API (C# name → Python name)
@@ -55,7 +61,7 @@ t = DTree.from_file("../examples/Test.csx")
 - `delete(v)` re-attaches v's children to v's parent, in v's place among its siblings.
 - `delete_subtree(v)` removes v with all its descendants and returns them in Q1 order.
 - `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
-- The constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [`../docs/set-queries.md`](../docs/set-queries.md).
+- The constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [set queries](https://github.com/EnisOlgac/DTree/blob/main/docs/set-queries.md).
 - Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Only rare alternating insertion patterns trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
 
 ## Tests

@@ -3,22 +3,31 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "dtree-projections"
-version = "1.4.1"
-description = "Single-rooted directed tree encoded by two linear projections (Q1, Q2) with O(1) reachability"
+name = "dtree-encoding"
+version = "1.5.0"
+description = "DTree: incremental encoding of directed trees by two projections (Q1, Q2) with O(1) reachability and set queries"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [{ name = "Enis Olgac", email = "enis@digraphs.info" }]
-keywords = ["directed tree", "reachability", "dual projection", "graph theory"]
+keywords = ["directed tree", "reachability", "incremental encoding", "dynamic tree", "graph theory", "data structure"]
 classifiers = [
-  "Programming Language :: Python :: 3",
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 [project.urls]
 Homepage = "https://github.com/EnisOlgac/DTree"
+Documentation = "https://github.com/EnisOlgac/DTree/blob/main/docs/API.md"
+Changelog = "https://github.com/EnisOlgac/DTree/blob/main/CHANGELOG.md"
+Paper = "https://doi.org/10.5772/intechopen.1013408"
+Archive = "https://doi.org/10.5281/zenodo.23395710"
 
 [tool.setuptools]
 packages = ["dtree"]

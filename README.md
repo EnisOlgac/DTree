@@ -2,6 +2,8 @@
 
 [![build](https://github.com/EnisOlgac/DTree/actions/workflows/build.yml/badge.svg)](https://github.com/EnisOlgac/DTree/actions/workflows/build.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23395710.svg)](https://doi.org/10.5281/zenodo.23395710)
+[![PyPI](https://img.shields.io/pypi/v/dtree-encoding.svg)](https://pypi.org/project/dtree-encoding/)
+[![NuGet](https://img.shields.io/nuget/v/DTree.Encoding.svg)](https://www.nuget.org/packages/DTree.Encoding)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7560--6107-a6ce39.svg)](https://orcid.org/0009-0009-7560-6107)
 
@@ -66,6 +68,15 @@ t.umin(["B", "D"]).reached_by_some("C")    # True: B reaches C
 ```
 
 In C#: `t.VMin(nodes).ReachesAll(u)`, `t.VMax(nodes).ReachesSome(u)`, `t.UMax(nodes).ReachedByAll(v)`, `t.UMin(nodes).ReachedBySome(v)`, with names or node handles; `MayReachSome` and `MayBeReachedBySome` are the O(1) filters. A constructed node stores its members, not positions; since insertions keep the order of existing nodes, it stays valid while the tree grows, and after a deletion or a move it is recomputed on its next use. A classical tree with parent and child links answers the same questions by climbing towards the root. See [`docs/set-queries.md`](docs/set-queries.md).
+
+## Installation
+
+```
+pip install dtree-encoding              # Python, imported as dtree
+dotnet add package DTree.Encoding       # C#, namespace DirectedTrees
+```
+
+To be notified of new versions on GitHub, use *Watch → Custom → Releases*.
 
 ## Quick Start (Python)
 
@@ -155,7 +166,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.4.1, Zenodo, 2026 (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.5.0, Zenodo, 2026 (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 

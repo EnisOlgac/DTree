@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0
+
+**Packages.** DTree is now installable from the package managers; the library itself is unchanged.
+
+- Python: `pip install dtree-encoding` (PyPI), imported as `dtree`.
+- C#: `dotnet add package DTree.Encoding` (NuGet), namespace `DirectedTrees`.
+- The names carry the subject of the paper, the encoding of the topology. A new workflow (`.github/workflows/publish.yml`) tests, builds and uploads both packages whenever a GitHub release is published, next to the Zenodo archive; it checks that the package versions match the release tag.
+- README: installation section and package badges; the Python README doubles as the PyPI page, the new `csharp/DTree.Core/README.md` as the NuGet page.
+
 ## 1.4.1
 
 Documentation and benchmarks only; the library is unchanged.

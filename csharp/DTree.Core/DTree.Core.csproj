@@ -6,12 +6,29 @@
     <Nullable>enable</Nullable>
     <RootNamespace>DirectedTrees</RootNamespace>
     <AssemblyName>DTree.Core</AssemblyName>
-    <Version>1.4.1</Version>
+    <Version>1.5.0</Version>
     <Authors>Enis Olgac</Authors>
-    <Description>Single-rooted directed tree encoded by two linear projections (Q1, Q2) with O(1) reachability.</Description>
+    <Description>DTree: incremental encoding of directed trees by two projections (Q1, Q2) with O(1) reachability and set queries.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- NuGet package -->
+    <PackageId>DTree.Encoding</PackageId>
+    <Title>DTree.Encoding</Title>
+    <PackageTags>directed-tree;reachability;incremental-encoding;dynamic-tree;graph-theory;data-structure</PackageTags>
+    <PackageProjectUrl>https://github.com/EnisOlgac/DTree</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/EnisOlgac/DTree</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageReleaseNotes>https://github.com/EnisOlgac/DTree/blob/main/CHANGELOG.md</PackageReleaseNotes>
+    <Copyright>Copyright (c) Enis Olgac</Copyright>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
 </Project>
