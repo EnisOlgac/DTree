@@ -21,13 +21,19 @@ keywords:
   - Python
   - C#
 abstract: >-
-  DTree is a minimal library for single-rooted directed trees whose
-  structure is encoded by two linear projections, Q1 and Q2. Node u
-  reaches node v if and only if u strictly precedes v in both projections.
-  Python and C# implementations support edge insertion, deletion,
-  subtree moves, and path-based queries, with rational (mediant) positions
-  so that inserting a node normally moves no other node. A WPF viewer is
-  included.
+  DTree encodes the topology and structure of single-rooted directed trees
+  explicitly, by two linear projections Q1 and Q2: node u reaches node v if
+  and only if u strictly precedes v in both. A classical tree answers such
+  questions by walking up parent links—a blind date that only shows the next
+  step. DTree navigates toward the target: two positions tell at once whether
+  it is reachable, independent of depth. The encoding is updated
+  incrementally: a new node goes to positions known in advance, and rational
+  (mediant) positions mean that inserting a node normally moves no other
+  node. Beyond single pairs, and/or queries on the topology (does u reach all
+  or some of a set; is v reached by all or some) are answered with
+  constructed nodes. Python and C# implementations (PyPI: dtree-encoding,
+  NuGet: DTree.Encoding) support insertion, deletion, subtree moves, path
+  queries and node handles; a WPF viewer is included.
 preferred-citation:
   type: generic
   title: "Topology and Structure of Directed Trees: An Incremental Encoding"
