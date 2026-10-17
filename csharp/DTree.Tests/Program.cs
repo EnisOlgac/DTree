@@ -2,11 +2,18 @@
 //
 //   dotnet run --project csharp/DTree.Tests -c Release            run all tests
 //   dotnet run --project csharp/DTree.Tests -c Release -- bench   run the benchmarks
-//   dotnet run --project csharp/DTree.Tests -c Release -- bench dynamic   only insertions and queries alternating
+//   dotnet run --project csharp/DTree.Tests -c Release -- bench dynamic   only the dynamic updates and the tree view
+//   ... -- bench --note "idle machine after restart"   remark for the report;  ... -- bench --no-save   no report
+//
+// Every benchmark run also writes its tables as a Markdown report to benchmarks/csharp/ at the
+// repository root, named after date and time (e.g. 2026-10-17_14-18.md).
 //
 // Every query is checked against a brute-force parent/children model (no projections).
 
 using System.Diagnostics;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text;
 using DirectedTrees;
 
 namespace DirectedTrees.Tests {
@@ -17,8 +24,7 @@ namespace DirectedTrees.Tests {
 
         private static int Main(string[] args) {
             if (args.Length > 0 && args[0] == "bench") {
-                if (args.Length > 1 && args[1] == "dynamic") Bench.RunDynamic();
-                else Bench.Run(args.Skip(1).Select(a => int.Parse(a)).ToArray());
+                Report.RunBench(args.Skip(1).ToArray());
                 return 0;
             }
             var tests = new (string Name, Action Body)[] {
@@ -47,6 +53,8 @@ namespace DirectedTrees.Tests {
                 ("constructed nodes: incremental add", Tests.ConstructedIncrementalAdd),
                 ("constructed nodes: empty set", Tests.ConstructedEmptySet),
                 ("constructed nodes survive inserts, deletes and moves", Tests.ConstructedSurvivesChanges),
+                ("constructed nodes: discard", Tests.ConstructedDiscard),
+                ("next in Q1", Tests.NextInQ1),
                 ("subtree end: top-down comb", Tests.SubtreeEndTopDownComb),
                 ("subtree end: inserts mixed with deletes and moves", Tests.SubtreeEndMixed),
                 ("subtree end: hint path always (budget 0)", Tests.SubtreeEndHintPathAlways),
@@ -601,6 +609,70 @@ namespace DirectedTrees.Tests {
             }
         }
 
+        public static void ConstructedDiscard() {
+            // random adds and discards, with inserts, deletes and moves in between
+            for (int seed = 0; seed < 15; seed++) {
+                var (t, r, rnd) = RandomTree(60, seed);
+                var c = ConstructedNodes.Of(t, Array.Empty<string>());
+                var set = new HashSet<string>();
+                int k = 60;
+                for (int step = 0; step < 120; step++) {
+                    var nodes = r.Nodes();
+                    var inner = nodes.Where(n => n != r.Root).ToList();
+                    double x = rnd.NextDouble();
+                    if (x < 0.35) {
+                        var v = nodes[rnd.Next(nodes.Count)];
+                        c.VMin.Add(v); c.VMax.Add(t.GetNode(v)); c.UMin.Add(v); c.UMax.Add(t.GetNode(v));
+                        set.Add(v);
+                    } else if (x < 0.65 && set.Count > 0) {
+                        var v = set.OrderBy(n => n, StringComparer.Ordinal).ElementAt(rnd.Next(set.Count));
+                        c.VMin.Discard(v); c.VMax.Discard(t.GetNode(v)); c.UMin.Discard(v); c.UMax.Discard(t.GetNode(v));
+                        set.Remove(v);
+                    } else if (x < 0.8) {
+                        var p = nodes[rnd.Next(nodes.Count)];
+                        t.Insert(p, $"x{k}");
+                        r.Insert(p, $"x{k}");
+                        k++;
+                    } else if (x < 0.9 && inner.Count > 10) {
+                        var v = inner[rnd.Next(inner.Count)];
+                        t.Delete(v);
+                        r.Delete(v);
+                        set.Remove(v);
+                    } else if (inner.Count > 10) {
+                        var u = inner[rnd.Next(inner.Count)];
+                        var banned = new HashSet<string>(t.Subtree(u));
+                        var targets = nodes.Where(n => !banned.Contains(n)).ToList();
+                        var p = targets[rnd.Next(targets.Count)];
+                        t.CutNPaste(u, p);
+                        r.Move(u, p);
+                    }
+                    var live = set.OrderBy(n => n, StringComparer.Ordinal).ToList();
+                    CheckConstructed(t, r, c, live, $"seed {seed}, step {step}");
+                    Seq(c.UMin.MemberNames.OrderBy(n => n, StringComparer.Ordinal), live, "members after discard");
+                    foreach (var v in live.Take(3)) Check(c.VMax.Contains(v), $"Contains({v})");
+                    foreach (var v in r.Nodes()) {                      // topmost member that reaches v
+                        var above = r.Ancestors(v).Skip(1).Where(set.Contains).ToList();
+                        Equal(c.UMin.Covering(v), above.Count > 0 ? above[^1] : null, $"seed {seed}, step {step}: Covering({v})");
+                    }
+                }
+            }
+            var t2 = new DTree();
+            t2.Insert("a", "b");
+            var u2 = t2.UMin(new[] { "b" });
+            u2.Discard("a").Discard("nobody");
+            Seq(u2.MemberNames, new[] { "b" }, "discarding a non-member is a no-op");
+        }
+
+        public static void NextInQ1() {
+            var (t, _, _) = RandomTree(80, 7);
+            var q1 = t.Q1.ToList();
+            for (int i = 0; i < q1.Count; i++) {
+                string? expected = i + 1 < q1.Count ? q1[i + 1] : null;
+                Equal(t.NextInQ1(q1[i]), expected, $"NextInQ1({q1[i]})");
+                Equal(t.NextInQ1(t.GetNode(q1[i]))?.Name, expected, $"NextInQ1(handle {q1[i]})");
+            }
+        }
+
         public static void ConstructedEmptySet() {
             var (t, _, _) = RandomTree(20, 1);
             var c = ConstructedNodes.Of(t, Array.Empty<string>());
@@ -729,6 +801,88 @@ namespace DirectedTrees.Tests {
         }
     }
 
+    /// <summary>Runs the benchmarks and writes their output as a dated Markdown report.</summary>
+    internal static class Report {
+        private sealed class Tee : TextWriter {
+            public readonly TextWriter Console;
+            public readonly StringBuilder Copy = new();
+            public Tee(TextWriter console) { Console = console; }
+            public override Encoding Encoding => Console.Encoding;
+            public override void Write(char value) { Console.Write(value); Copy.Append(value); }
+            public override void Write(string? value) { Console.Write(value); Copy.Append(value); }
+            public override void Write(char[] buffer, int index, int count) { Console.Write(buffer, index, count); Copy.Append(buffer, index, count); }
+            public override void Flush() => Console.Flush();
+        }
+
+        public static void RunBench(string[] args) {
+            // Same number format as the Python report (10,000 and 0.013), whatever the system's culture.
+            CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+            bool save = true, dynamic = false;
+            string note = "";
+            var sizes = new List<int>();
+            for (int i = 0; i < args.Length; i++) {
+                if (args[i] == "--no-save") save = false;
+                else if (args[i] == "--note" && i + 1 < args.Length) note = args[++i];
+                else if (args[i] == "dynamic") dynamic = true;
+                else sizes.Add(int.Parse(args[i], CultureInfo.InvariantCulture));
+            }
+            var started = DateTime.Now;
+            var console = System.Console.Out;
+            var tee = save ? new Tee(console) : null;
+            if (tee != null) System.Console.SetOut(tee);
+            try {
+                if (dynamic) Bench.RunDynamic();
+                else Bench.Run(sizes.ToArray());
+            } finally {
+                if (tee != null) {
+                    System.Console.SetOut(console);
+                    var shown = string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a));
+                    var path = Write(tee.Copy.ToString(), started, shown, note);
+                    System.Console.WriteLine($"\nReport written to {path}");
+                }
+            }
+        }
+
+        private static string RepoRoot() {
+            for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
+                if (Directory.Exists(Path.Combine(d.FullName, "csharp")) && Directory.Exists(Path.Combine(d.FullName, "python")))
+                    return d.FullName;
+            return Directory.GetCurrentDirectory();
+        }
+
+        private static string Processor() {
+            var id = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER");     // Windows
+            if (!string.IsNullOrEmpty(id)) return id;
+            try {
+                foreach (var line in File.ReadLines("/proc/cpuinfo"))
+                    if (line.StartsWith("model name")) return line.Split(':', 2)[1].Trim();
+            } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            return RuntimeInformation.ProcessArchitecture.ToString();
+        }
+
+        private static string Write(string body, DateTime started, string shownArgs, string note) {
+            var root = RepoRoot();
+            var dir = Path.Combine(root, "benchmarks", "csharp");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, started.ToString("yyyy-MM-dd_HH-mm", CultureInfo.InvariantCulture) + ".md");
+            var v = typeof(DTree).Assembly.GetName().Version;
+            var head = new List<string> {
+                $"# DTree benchmarks, C#—{started.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}",
+                "",
+                $"- DTree {v?.ToString(3)}, {RuntimeInformation.FrameworkDescription}",
+                $"- {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})",
+                $"- Processor: {Processor()}, {Environment.ProcessorCount} logical cores",
+                $"- Command: `dotnet run --project csharp/DTree.Tests -c Release -- bench{(shownArgs.Length > 0 ? " " + shownArgs : "")}`",
+            };
+            if (note.Length > 0) head.Add($"- Note: {note}");
+            var lines = body.Replace("\r\n", "\n").Split('\n').ToList();
+            if (lines.Count > 0 && lines[0].StartsWith("DTree ")) lines.RemoveAt(0);   // replaced by the header
+            while (lines.Count > 0 && lines[0].Length == 0) lines.RemoveAt(0);
+            File.WriteAllText(path, string.Join("\n", head) + "\n\n" + string.Join("\n", lines).TrimEnd() + "\n", new UTF8Encoding(false));
+            return Path.GetRelativePath(root, path);
+        }
+    }
+
     internal static class Bench {
         private static readonly (string Name, Func<int, List<string>, Random, string> Parent)[] Shapes = {
             ("random", (i, names, rnd) => names[rnd.Next(names.Count)]),
@@ -787,11 +941,13 @@ namespace DirectedTrees.Tests {
             Depth(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 50_000);
             Sets(100_000, new[] { 10, 100, 1_000, 10_000 }, 1_000, 200);
             Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
+            TreeView(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 20_000);
         }
 
         public static void RunDynamic() {
             Console.WriteLine($"DTree dynamic updates (C#, .NET {Environment.Version})");
             Dynamic(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, new[] { 1_000, 10_000, 20_000 });
+            TreeView(100_000, new[] { 10, 100, 1_000, 10_000, 100_000 }, 20_000);
         }
 
         // -- dynamic updates: insertions and queries alternating --------------------------------
@@ -894,30 +1050,188 @@ namespace DirectedTrees.Tests {
         private static string Factor(double slow, double fast) =>
             (slow < 10 * fast ? (slow / fast).ToString("F1") : (slow / fast).ToString("N0")) + "×";
 
-        private static void Dynamic(int n, int[] depths, int[] staticSizes, int queriesPerInsert = 1) {
-            RunDTree(Workload(1_000, 10, 1));                           // warm-up (JIT)
-            RunParentWalk(Workload(1_000, 10, 1));
+        /// <summary>Best of three runs, or a single run if it takes over two seconds (noise is small then).</summary>
+        private static (double Ms, List<bool> Answers) Best(Func<Step[], (double Ms, List<bool> Answers)> run, Step[] steps) {
+            var (ms, answers) = run(steps);
+            if (ms < 2000)
+                for (int i = 0; i < 2; i++) ms = Math.Min(ms, run(steps).Ms);
+            return (ms, answers);
+        }
+
+        private static void Dynamic(int n, int[] depths, int[] staticSizes) {
+            RunDTree(Workload(1_000, 10, 10));                          // warm-up (JIT)
+            RunParentWalk(Workload(1_000, 10, 10));
             RunStaticNumbers(Workload(200, 10, 1));
-            Console.WriteLine($"\nDynamic updates: insertions and queries alternating ({n:N0} nodes, {queriesPerInsert} random query per insertion, node handles)\n");
+            Console.WriteLine($"\nDynamic updates: insertions and queries alternating ({n:N0} nodes, node handles)\n");
+            Console.WriteLine("A step is one insertion followed by 1 or 10 queries between random nodes present at that moment; µs per step, best of three runs.\n");
+            Console.WriteLine("| depth | DTree, 1 query | parent walk, 1 query | factor | DTree, 10 queries | parent walk, 10 queries | factor |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+            foreach (var depth in depths) {
+                var line = $"| {depth:N0} |";
+                foreach (var q in new[] { 1, 10 }) {
+                    var steps = Workload(n, depth, q);
+                    var (d, a) = Best(RunDTree, steps);
+                    var (w, b) = Best(RunParentWalk, steps);
+                    if (!a.SequenceEqual(b)) throw new InvalidOperationException("DTree and parent walk disagree");
+                    line += $" {d * 1000 / steps.Length:F3} | {w * 1000 / steps.Length:F3} | {Factor(w, d)} |";
+                }
+                Console.WriteLine(line);
+            }
+            Console.WriteLine("\nDynamic updates with static pre/post numbers, recomputed after each insertion (1 query per insertion)\n");
+            Console.WriteLine("The tree keeps the given depth as it grows: more nodes make it wider, not deeper. Total time in ms.\n");
+            Console.WriteLine("| depth | nodes | DTree [ms] | parent walk [ms] | static numbers [ms] |");
+            Console.WriteLine("| ---: | ---: | ---: | ---: | ---: |");
+            foreach (var depth in new[] { 100, 1_000 })
+                foreach (var m in staticSizes) {
+                    var steps = Workload(m, depth, 1);
+                    var (d, a) = Best(RunDTree, steps);
+                    var (w, b) = Best(RunParentWalk, steps);
+                    var (r, c) = RunStaticNumbers(steps);
+                    if (!a.SequenceEqual(b) || !a.SequenceEqual(c)) throw new InvalidOperationException("answers disagree");
+                    Console.WriteLine($"| {depth:N0} | {m:N0} | {d:F1} | {w:F1} | {r:N0} |");
+                }
+        }
+
+        // -- use case: a tree view with expand/collapse -----------------------------------------
+
+        /// <summary>Classical tree model for a tree view: parent link, child list, next-sibling link, collapsed flag.</summary>
+        private sealed class TNode {
+            public readonly int Id;
+            public TNode? Parent;
+            public TNode? NextSib;
+            public readonly List<TNode> Kids = new();
+            public bool Collapsed;
+            public TNode(int id) { Id = id; }
+        }
+
+        /// <summary>Insert leaf B under spine node A, or toggle spine node A (B = -1); then show node V.</summary>
+        private readonly record struct ViewOp(bool Insert, int A, int B, int V);
+
+        /// <summary>Changes to a tree built by BuildWithDepth(n, depth): each step inserts a leaf under a random
+        /// spine node or toggles (collapses or expands) a random spine node, then names a random node to show.</summary>
+        private static ViewOp[] TreeViewWorkload(int n, int depth, int steps, int seed = 6) {
+            var rnd = new Random(seed);
+            var ops = new ViewOp[steps];
+            int size = n;
+            for (int i = 0; i < steps; i++) {
+                bool insert = rnd.NextDouble() < 0.5;
+                int a = rnd.Next(depth);
+                int b = insert ? size++ : -1;
+                ops[i] = new ViewOp(insert, a, b, rnd.Next(size));
+            }
+            return ops;
+        }
+
+        /// <summary>DTree: the collapsed nodes are one UMin. The visible row that contains v is Covering(v)
+        /// (v itself if null); the rows below follow Q1, jumping over every collapsed subtree with SubtreeLast.</summary>
+        private static (double Ms, List<int[]> Rows) TreeViewDTree(DTree t, List<DNode> nodes, ViewOp[] ops, int rows) {
+            var collapsed = t.UMin(Array.Empty<DNode>());
+            var shown = new List<DNode[]>(ops.Length);
+            var buf = new List<DNode>(rows);
+            var sw = Stopwatch.StartNew();
+            foreach (var op in ops) {
+                if (op.Insert) nodes.Add(t.Insert(nodes[op.A], $"n{op.B}"));
+                else if (collapsed.Contains(nodes[op.A])) collapsed.Discard(nodes[op.A]);
+                else collapsed.Add(nodes[op.A]);
+                var x = collapsed.Covering(nodes[op.V]) ?? nodes[op.V];
+                buf.Clear();
+                buf.Add(x);
+                while (buf.Count < rows) {
+                    if (collapsed.Contains(x)) x = t.SubtreeLast(x);
+                    var next = t.NextInQ1(x);
+                    if (next == null) break;
+                    x = next;
+                    buf.Add(x);
+                }
+                shown.Add(buf.ToArray());
+            }
+            double ms = sw.Elapsed.TotalMilliseconds;
+            return (ms, shown.Select(r => r.Select(d => int.Parse(d.Name.AsSpan(1), NumberStyles.Integer, CultureInfo.InvariantCulture)).ToArray()).ToList());
+        }
+
+        /// <summary>Classical: the visible row that contains v is its topmost collapsed ancestor (one climb to the
+        /// root); the next row is the first child of an expanded node, otherwise the next sibling of the node or
+        /// of its nearest ancestor that has one.</summary>
+        private static (double Ms, List<int[]> Rows) TreeViewWalk(List<TNode> nodes, ViewOp[] ops, int rows) {
+            var shown = new List<int[]>(ops.Length);
+            var buf = new List<int>(rows);
+            var sw = Stopwatch.StartNew();
+            foreach (var op in ops) {
+                if (op.Insert) {
+                    var p = nodes[op.A];
+                    var c = new TNode(op.B) { Parent = p };
+                    if (p.Kids.Count > 0) p.Kids[^1].NextSib = c;
+                    p.Kids.Add(c);
+                    nodes.Add(c);
+                } else {
+                    nodes[op.A].Collapsed = !nodes[op.A].Collapsed;
+                }
+                var v = nodes[op.V];
+                TNode? top = null;
+                for (var w = v.Parent; w != null; w = w.Parent)
+                    if (w.Collapsed) top = w;
+                var x = top ?? v;
+                buf.Clear();
+                buf.Add(x.Id);
+                while (buf.Count < rows) {
+                    if (x.Kids.Count > 0 && !x.Collapsed) {
+                        x = x.Kids[0];
+                    } else {
+                        TNode? y = x;
+                        while (y != null && y.NextSib == null) y = y.Parent;
+                        if (y == null) break;
+                        x = y.NextSib!;
+                    }
+                    buf.Add(x.Id);
+                }
+                shown.Add(buf.ToArray());
+            }
+            return (sw.Elapsed.TotalMilliseconds, shown);
+        }
+
+        private static List<TNode> ClassicalCopy(List<DNode> nodes) {
+            var index = new Dictionary<DNode, int>();
+            for (int i = 0; i < nodes.Count; i++) index[nodes[i]] = i;
+            var copy = new List<TNode>(nodes.Count);
+            for (int i = 0; i < nodes.Count; i++) copy.Add(new TNode(i));
+            for (int i = 1; i < nodes.Count; i++) {                     // ids increase in insertion order
+                var p = copy[index[nodes[i].Parent!]];
+                var c = copy[i];
+                c.Parent = p;
+                if (p.Kids.Count > 0) p.Kids[^1].NextSib = c;
+                p.Kids.Add(c);
+            }
+            return copy;
+        }
+
+        private static void TreeView(int n, int[] depths, int steps, int rows = 20) {
+            {                                                           // warm-up (JIT)
+                var (t0, nodes0) = BuildWithDepth(2_000, 10);
+                var copy0 = ClassicalCopy(nodes0);
+                var ops0 = TreeViewWorkload(2_000, 10, 500);
+                TreeViewDTree(t0, nodes0, ops0, rows);
+                TreeViewWalk(copy0, ops0, rows);
+            }
+            Console.WriteLine($"\nUse case: tree view with expand/collapse ({n:N0} nodes, {steps:N0} steps, node handles)\n");
+            Console.WriteLine($"Each step changes the tree (inserts a leaf or collapses/expands a node, half and half), then shows a random node: it finds the visible row that contains it and lists the {rows} visible rows from there. µs per step, best of three runs.\n");
             Console.WriteLine("| depth | DTree [µs per step] | parent walk [µs per step] | factor |");
             Console.WriteLine("| ---: | ---: | ---: | ---: |");
             foreach (var depth in depths) {
-                var steps = Workload(n, depth, queriesPerInsert);
-                var (d, a) = RunDTree(steps);
-                var (w, b) = RunParentWalk(steps);
-                if (!a.SequenceEqual(b)) throw new InvalidOperationException("DTree and parent walk disagree");
-                Console.WriteLine($"| {depth:N0} | {d * 1000 / steps.Length:F3} | {w * 1000 / steps.Length:F3} | {Factor(w, d)} |");
-            }
-            Console.WriteLine($"\nDynamic updates with static pre/post numbers, recomputed after each insertion (depth 100, {queriesPerInsert} query per insertion)\n");
-            Console.WriteLine("| nodes | DTree [ms] | parent walk [ms] | static numbers [ms] |");
-            Console.WriteLine("| ---: | ---: | ---: | ---: |");
-            foreach (var m in staticSizes) {
-                var steps = Workload(m, 100, queriesPerInsert);
-                var (d, a) = RunDTree(steps);
-                var (w, b) = RunParentWalk(steps);
-                var (r, c) = RunStaticNumbers(steps);
-                if (!a.SequenceEqual(b) || !a.SequenceEqual(c)) throw new InvalidOperationException("answers disagree");
-                Console.WriteLine($"| {m:N0} | {d:F1} | {w:F1} | {r:N0} |");
+                var ops = TreeViewWorkload(n, depth, steps);
+                double d = double.MaxValue, w = double.MaxValue;
+                int reps = 3;
+                for (int rep = 0; rep < reps; rep++) {
+                    var (t, nodes) = BuildWithDepth(n, depth);
+                    var copy = ClassicalCopy(nodes);
+                    var (dm, a) = TreeViewDTree(t, nodes, ops, rows);
+                    var (wm, b) = TreeViewWalk(copy, ops, rows);
+                    if (a.Count != b.Count || !a.Zip(b).All(p => p.First.SequenceEqual(p.Second)))
+                        throw new InvalidOperationException("tree view: DTree and parent walk disagree");
+                    d = Math.Min(d, dm);
+                    w = Math.Min(w, wm);
+                    if (dm > 2000 && wm > 2000) reps = 1;               // long runs: noise is small
+                }
+                Console.WriteLine($"| {depth:N0} | {d * 1000 / steps:F2} | {w * 1000 / steps:F2} | {Factor(w, d)} |");
             }
         }
 

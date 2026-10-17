@@ -90,6 +90,9 @@ Check if one node cannot reach another.
 
 ### Ancestry and Structure
 
+#### `string? NextInQ1(string node)` / `DNode? NextInQ1(DNode node)`
+- Returns the node after `node` in Q1, or `null` after the last node. Q1 is the display order of a tree view: parents before children, siblings in insertion order. O(1). Python: `next_in_q1(node)` (`None`).
+
 #### `string SubtreeLast(string node)` / `DNode SubtreeLast(DNode node)`
 - Returns the last node of the subtree of `node` in Q1; the subtree is the contiguous block from `node` to it.
 - A short walk down the last children finds it on ordinary trees; beyond that, the end remembered last time is reused when it validates in O(1) (it lies in the subtree and its Q1 successor does not). Asked again for the same node, it is usually O(1).
@@ -138,6 +141,15 @@ Check if one node cannot reach another.
 
 #### `ConstructedNode Add(string node)`
 - Adds a node to the set, in O(log k) for k members; returns the constructed node. Python: `add(node)`.
+
+#### `ConstructedNode Discard(string node)`
+- Removes a node from the set; no error if it is not a member. Returns the constructed node. O(k) for k members; if the node held the minimal (or maximal) position in Q1 or Q2, the other members are scanned for the new one. Typical use: expanding a node in a tree view whose collapsed nodes are kept as a `UMin`. Python: `discard(node)`.
+
+#### `bool Contains(string node)`
+- Returns `true` if the node is a member of the set. O(1). Python: `node in s`.
+
+#### `string? UMin.Covering(string v)` / `DNode? UMin.Covering(DNode v)`
+- Returns the topmost member of the set that reaches `v`, or `null` if no member does. O(log k). With the collapsed nodes of a tree view as a `UMin`, this is the visible row that contains `v`; `null` means `v` itself is visible. Python: `covering(v)` (`None`).
 
 #### `bool VMin.ReachesAll(string u)`
 - Returns `true` if `u` reaches every node of the set: `u` lies left of VMin in both Q1 and Q2. O(1).

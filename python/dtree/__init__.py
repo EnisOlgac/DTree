@@ -3,4 +3,4 @@
 from .dtree import SINK, SOURCE, DList, DNode, DTree, UMax, UMin, VMax, VMin
 
 __all__ = ["DTree", "DNode", "DList", "VMin", "VMax", "UMin", "UMax", "SOURCE", "SINK"]
-__version__ = "1.6.0"
+__version__ = "1.7.0"

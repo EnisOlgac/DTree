@@ -11,7 +11,8 @@ namespace DirectedTrees {
     /// member holding the minimal (or maximal) index there; the two may be different nodes, so the
     /// constructed node usually corresponds to no real node. Insertions and renumbering keep the
     /// order of existing nodes, so it stays valid while the tree grows. After a deletion or a
-    /// CutNPaste it is recomputed from the remaining members on its next use.
+    /// CutNPaste it is recomputed from the remaining members on its next use. Members are added
+    /// with Add and removed with Discard.
     /// </remarks>
     public abstract class ConstructedNode {
         private protected readonly DTree Tree;
@@ -49,6 +50,42 @@ namespace DirectedTrees {
             Added(node);
             return this;
         }
+
+        /// <summary>
+        /// Remove a node from the set; no error if it is not a member. Returns the constructed node
+        /// itself. If the node held an index (the minimal or maximal position in Q1 or Q2), the index
+        /// nodes are recomputed in O(k). Typical use: expanding a node in a tree view.
+        /// </summary>
+        public ConstructedNode Discard(string node) =>
+            Tree.TryGetNode(node, out var n) ? Discard(n) : this;
+
+        public ConstructedNode Discard(DNode node) {
+            Check();
+            if (!_seen.Remove(node)) return this;
+            int lo = 0, hi = Members.Count;                         // members are in Q1 order
+            while (lo < hi) {
+                int mid = (lo + hi) / 2;
+                if (DList.Less(Members[mid].C1, node.C1)) lo = mid + 1; else hi = mid;
+            }
+            Members.RemoveAt(lo);
+            if (node == Q1Node || node == Q2Node) {
+                Q1Node = Q2Node = null;
+                foreach (var n in Members) {
+                    if (Q1Node == null || Better(n.C1, Q1Node.C1)) Q1Node = n;
+                    if (Q2Node == null || Better(n.C2, Q2Node.C2)) Q2Node = n;
+                }
+            }
+            Discarded(node);
+            return this;
+        }
+
+        /// <summary>True if the node is a member of the set.</summary>
+        public bool Contains(string node) => Tree.TryGetNode(node, out var n) && Contains(n);
+
+        public bool Contains(DNode node) { Check(); return _seen.Contains(node); }
+
+        /// <summary>Hook for subclasses that keep more than the index nodes.</summary>
+        private protected virtual void Discarded(DNode node) { }
 
         /// <summary>Hook for subclasses that keep more than the index nodes.</summary>
         private protected virtual void Added(DNode node) { }
@@ -202,6 +239,10 @@ namespace DirectedTrees {
             _tops.Insert(i, node);
         }
 
+        private protected override void Discarded(DNode node) {
+            if (_tops.Contains(node)) Rebuilt();                    // members it covered may become topmost
+        }
+
         private protected override void Rebuilt() {
             _tops.Clear();
             foreach (var v in Members)                              // Q1 order: ancestors come first
@@ -220,5 +261,19 @@ namespace DirectedTrees {
         public bool ReachedBySome(string v) => Tree.TryGetNode(v, out var n) && ReachedBySome(n);
 
         public bool ReachedBySome(DNode v) => MayBeReachedBySome(v) && Covered(v);
+
+        /// <summary>
+        /// The topmost member of the set that reaches v, or null if no member does (O(log k)).
+        /// With the collapsed nodes of a tree view as a UMin, this is the visible row that contains
+        /// v: null means v itself is visible.
+        /// </summary>
+        public string? Covering(string v) => Tree.TryGetNode(v, out var n) ? Covering(n)?.Name : null;
+
+        public DNode? Covering(DNode v) {
+            Check();
+            if (v.Owner != Tree) return null;
+            int i = TopsBefore(v);
+            return i > 0 && DTree.Reaches(_tops[i - 1], v) ? _tops[i - 1] : null;
+        }
     }
 }

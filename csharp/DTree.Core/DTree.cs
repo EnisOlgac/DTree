@@ -176,6 +176,17 @@ namespace DirectedTrees {
             return w;
         }
 
+        /// <summary>
+        /// The node after node in Q1, or null after the last node. Q1 is the display order of a tree
+        /// view (parents before children, siblings in insertion order).
+        /// </summary>
+        public string? NextInQ1(string node) => NextInQ1(Require(node))?.Name;
+
+        public DNode? NextInQ1(DNode node) {
+            Own(node);
+            return node.C1.Next?.Node;
+        }
+
         /// <summary>Last node of the subtree of node in Q1 (the subtree is the block from node to it). Usually O(1) when asked again.</summary>
         public string SubtreeLast(string node) => LastInQ1(Require(node)).Name;
 

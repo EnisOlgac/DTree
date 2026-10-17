@@ -52,9 +52,12 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 | `PathToRoot`, `RootToPath` | `path_to_root`, `root_to_path` (plus `path(u, v)`) |
 | `GetNode`, `TryGetNode`, `DNode` | `get_node`, `try_get_node`, `DNode` (node handles; `insert` returns one) |
 | `SubtreeLast` | `subtree_last` (last node of a subtree in Q1) |
+| `NextInQ1` | `next_in_q1` (next node in Q1, the display order; `None` at the end) |
 | `VMin`, `VMax`, `UMin`, `UMax` (of nodes) | `vmin`, `vmax`, `umin`, `umax` |
 | `ReachesAll`, `MayReachSome`, `ReachesSome` | `reaches_all`, `may_reach_some`, `reaches_some` |
 | `ReachedByAll`, `MayBeReachedBySome`, `ReachedBySome` | `reached_by_all`, `may_be_reached_by_some`, `reached_by_some` |
+| `Add`, `Discard`, `Contains` (of a constructed node) | `add`, `discard`, `node in s` |
+| `UMin.Covering` | `covering` (topmost member that reaches a node; `None` if none) |
 
 ## Semantics
 
@@ -65,7 +68,7 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 - `delete(v)` re-attaches v's children to v's parent, in v's place among its siblings.
 - `delete_subtree(v)` removes v with all its descendants and returns them in Q1 order.
 - `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
-- And/or queries on the topology: the constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [and/or queries on the topology](https://github.com/EnisOlgac/DTree/blob/main/docs/and-or-queries.md).
+- And/or queries on the topology: the constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). Members are added with `add` and removed with `discard`. A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [and/or queries on the topology](https://github.com/EnisOlgac/DTree/blob/main/docs/and-or-queries.md).
 - Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Only rare alternating insertion patterns trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
 
 ## Tests
@@ -78,14 +81,21 @@ Every operation is checked against a brute-force parent/children model on random
 
 ## Benchmarks
 
+The benchmarks come with the package, so you can measure on your own machine:
+
 ```
-python benchmarks/bench.py            # trees of 10,000 and 100,000 nodes
-python benchmarks/bench.py --quick    # a few seconds
-python benchmarks/bench.py --dynamic  # only insertions and queries alternating
-python benchmarks/bench.py 1000000    # custom sizes
+python -m dtree.bench            # trees of 10,000 and 100,000 nodes
+python -m dtree.bench --quick    # a few seconds
+python -m dtree.bench --dynamic  # only the dynamic updates and the tree view
+python -m dtree.bench --note "idle machine"   # remark for the report
+python -m dtree.bench 1000000    # custom sizes
 ```
 
-The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and/or queries with constructed nodes, and dynamic updates (insertions and queries alternating). Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+In a clone of the repository, `python python/benchmarks/bench.py` runs the same code from the sources.
+
+The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and/or queries with constructed nodes, dynamic updates (insertions with 1 or 10 queries each, and static pre/post numbers at depths 100 and 1,000), and a tree view with expand/collapse. Each dynamic measurement is the best of three runs. Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+
+Every run also writes its tables as a Markdown report to `benchmarks/python/`—in the current directory, or at the repository root when run inside a clone— named after date and time (for example `2026-10-17_14-18.md`), with a header giving the DTree and Python versions, the operating system and the processor; `--no-save` skips it. The C# benchmarks (`dotnet run --project csharp/DTree.Tests -c Release -- bench`) write theirs to `benchmarks/csharp/`.
 
 ## Provenance
 

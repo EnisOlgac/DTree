@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dtree-encoding"
-version = "1.6.0"
+version = "1.7.0"
 description = "DTree: incremental encoding of the topology of directed trees by two projections (Q1, Q2): O(1) reachability, and/or queries on the topology of the tree, dynamic (incremental) updates"
 readme = "README.md"
 requires-python = ">=3.8"

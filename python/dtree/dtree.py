@@ -466,6 +466,12 @@ class DTree:
             w = w.kids[0]
         return w
 
+    def next_in_q1(self, node) -> Optional[str]:
+        """The node after ``node`` in Q1, as a name, or None after the last node. Q1 is the
+        display order of a tree view (parents before children, siblings in insertion order)."""
+        c = self._node(node).c1.next
+        return c.node.name if c is not None and c.node is not None else None
+
     def subtree_last(self, node):
         """Last node of the subtree of ``node`` in Q1, as a name (the subtree is the block from
         ``node`` to it). Usually O(1) when asked again for the same node."""
@@ -785,7 +791,8 @@ class _VNode:
     the minimal (or maximal) index there; the two may be different nodes, so the constructed
     node usually corresponds to no real node. Insertions and renumbering keep the order of
     existing nodes, so it stays valid while the tree grows. After a deletion or a cut_n_paste it is
-    recomputed from the remaining members on its next use.
+    recomputed from the remaining members on its next use. Members are added with ``add`` and
+    removed with ``discard``.
     """
 
     _lowest = True  # VMin keeps the leftmost member, VMax the rightmost
@@ -829,7 +836,47 @@ class _VNode:
         self._added(node)
         return self
 
+    def discard(self, node) -> "_VNode":
+        """Remove a node (name or handle) from the set; no error if it is not a member.
+
+        O(log k) to find it plus the list removal; if it held an index (the minimal or
+        maximal position in Q1 or Q2), the index nodes are recomputed in O(k). Returns the
+        constructed node itself. Typical use: expanding a node in a tree view, after it was
+        added to the set of collapsed nodes.
+        """
+        node = self._t._name(node)
+        self._check()
+        if node not in self._seen:
+            return self
+        self._seen.discard(node)
+        q1, m = self._t._q1, self._members
+        lo, hi = 0, len(m)                  # members are sorted by Q1 order
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if q1.precedes(m[mid], node):
+                lo = mid + 1
+            else:
+                hi = mid
+        del m[lo]
+        if node == self._c1 or node == self._c2:
+            t = self._t
+            self._c1 = self._c2 = None
+            for v in self._members:
+                if self._better(t._q1, v, self._c1):
+                    self._c1 = v
+                if self._better(t._q2, v, self._c2):
+                    self._c2 = v
+        self._discarded(node)
+        return self
+
+    def __contains__(self, node) -> bool:
+        self._check()
+        return self._t._name(node) in self._seen
+
     def _added(self, node: str) -> None:
+        """Hook for subclasses that keep more than the index nodes."""
+
+    def _discarded(self, node: str) -> None:
         """Hook for subclasses that keep more than the index nodes."""
 
     def _rebuilt(self) -> None:
@@ -989,6 +1036,10 @@ class UMin(_VNode):
             del m[i]                     # node is above them: they are no longer topmost
         m.insert(i, node)
 
+    def _discarded(self, node: str) -> None:
+        if node in self._tops:           # members it covered may become topmost
+            self._rebuilt()
+
     def _rebuilt(self) -> None:
         self._tops = []
         t = self._t
@@ -1011,3 +1062,18 @@ class UMin(_VNode):
         if not self.may_be_reached_by_some(v):
             return False
         return self._covered(v)
+
+    def covering(self, v) -> Optional[str]:
+        """The topmost member of the set that reaches v, or None if no member does (O(log k)).
+
+        With the collapsed nodes of a tree view as a UMin, this is the visible row that
+        contains v: None means v itself is visible.
+        """
+        v = self._t._name(v)
+        self._check()
+        if not self._t.contains(v):
+            return None
+        i = self._last_top_before(v)
+        if i > 0 and self._t.can_reach(self._tops[i - 1], v):
+            return self._tops[i - 1]
+        return None

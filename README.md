@@ -78,15 +78,23 @@ In C#: `t.VMin(nodes).ReachesAll(u)`, `t.VMax(nodes).ReachesSome(u)`, `t.UMax(no
   ```python
   def visible_rows(t, collapsed):
       rows, v = [], t.root
-      while v != t.sink:
+      while v is not None:
           rows.append(v)
           if v in collapsed:
               v = t.subtree_last(v)      # jump over the hidden block
-          v = t.Q1.next(v)
+          v = t.next_in_q1(v)            # Q1 is the display order
       return rows
 
-  hidden = t.umin(collapsed).reached_by_some(v)   # is v inside a collapsed subtree?
+  collapsed = t.umin(["B"])               # the collapsed nodes, kept as a constructed node
+  collapsed.add("D")                      # collapse D
+  collapsed.discard("B")                  # expand B
+  hidden = collapsed.reached_by_some("C") # is C inside a collapsed subtree?
+  row = collapsed.covering("C") or "C"    # the visible row that contains C
   ```
+
+  The constructed node also answers `v in collapsed`, so it can be passed to `visible_rows` directly.
+
+  The benchmarks include this use case against a classical tree model with parent, child and sibling links. The classical model wins on shallow trees and loses as the depth grows; see [the parent walk's home ground](docs/parent-walk.md).
 
 - **File and directory trees:** is this file under that folder, while files are added and moved?
 - **Syntax trees and scopes** in editors and compilers: is this node inside that function, during editing?
@@ -168,6 +176,7 @@ The author's original C# prototype (with the WPF viewer on top of it) is include
 
 - [API reference (Markdown)](docs/API.md)
 - [And/or queries on the topology](docs/and-or-queries.md)—constructed nodes, with a comparison to classical doubly linked trees and measurements
+- [The parent walk's home ground](docs/parent-walk.md)—where a classical parent walk is enough, where it is not, and a tree-view use case
 - [API reference (PDF)](docs/User.Doc.pdf)—LaTeX source: [`docs/User.Doc.tex`](docs/User.Doc.tex)
 
 ## Repository Layout

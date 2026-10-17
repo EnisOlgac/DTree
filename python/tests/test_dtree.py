@@ -332,6 +332,58 @@ class TestVNodes(unittest.TestCase):
                 self.check_vnodes(t, live, **v_s)
                 self.assertEqual(sorted(v_s["umin"].members), sorted(live))
 
+    def test_discard(self):
+        # random adds and discards, with inserts, deletes and moves in between
+        for seed in range(15):
+            t, ref, rnd = random_tree(60, seed)
+            v_s = dict(vmin=t.vmin(), vmax=t.vmax(), umin=t.umin(), umax=t.umax())
+            S, k = set(), 60
+            for step in range(120):
+                nodes = t.nodes
+                r = rnd.random()
+                if r < 0.35:
+                    v = rnd.choice(nodes)
+                    for x in v_s.values():
+                        x.add(v if rnd.random() < 0.5 else t.get_node(v))
+                    S.add(v)
+                elif r < 0.65 and S:
+                    v = rnd.choice(sorted(S))
+                    for x in v_s.values():
+                        x.discard(v)
+                    S.discard(v)
+                elif r < 0.8:
+                    t.insert(rnd.choice(nodes), f"x{k}")
+                    k += 1
+                elif r < 0.9 and len(nodes) > 10:
+                    v = rnd.choice(nodes[1:])
+                    t.delete(v)
+                    S.discard(v)
+                elif len(nodes) > 10:
+                    u = rnd.choice(nodes[1:])
+                    banned = set(t.subtree(u))
+                    t.cut_n_paste(u, rnd.choice([w for w in nodes if w not in banned]))
+                live = sorted(S)
+                self.check_vnodes(t, live, **v_s)
+                self.assertEqual(sorted(v_s["umin"].members), live)
+                for v in live[:3]:
+                    self.assertIn(v, v_s["vmax"])
+                for v in t.nodes:                        # topmost member that reaches v
+                    above = [a for a in t.path_to_root(v)[1:] if a in S]
+                    self.assertEqual(v_s["umin"].covering(v), above[-1] if above else None)
+        # discarding a non-member is a no-op
+        t = DTree()
+        t.insert("a", "b")
+        u = t.umin(["b"])
+        u.discard("a").discard("nobody")
+        self.assertEqual(u.members, ["b"])
+
+    def test_next_in_q1(self):
+        t, ref, rnd = random_tree(80, 7)
+        q1 = t.q1
+        for a, b in zip(q1, q1[1:] + [None]):
+            self.assertEqual(t.next_in_q1(a), b)
+            self.assertEqual(t.next_in_q1(t.get_node(a)), b)
+
     def test_incremental_add(self):
         t, ref, rnd = random_tree(100, 3)
         v_s = dict(vmin=t.vmin(), vmax=t.vmax(), umin=t.umin(), umax=t.umax())

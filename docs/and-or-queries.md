@@ -116,7 +116,7 @@ Insertions and queries alternate: after each insertion, one query between two ra
 | 10,000 | 3.86 µs | 81.3 µs | 21× | 1.94 µs | 13.3 µs | 6.9× |
 | 100,000 | — | — | — | 1.64 µs | 83.4 µs | 51× |
 
-A step in DTree costs the same at every depth; it is dominated by the insertion (two list insertions and, in both implementations, registering the node under its name). The parent walk inserts almost for free but pays for every query with the depth. With one query per insertion the crossover lies at a depth of a few hundred in Python and between 1,000 and 10,000 in C#; with more queries per insertion it moves towards shallower trees.
+A step in DTree costs the same at every depth; it is dominated by the insertion (two list insertions and, in both implementations, registering the node under its name). The parent walk inserts almost for free but pays for every query with the depth. With one query per insertion the crossover lies at a depth of a few hundred in Python and between 1,000 and 10,000 in C#; with more queries per insertion it moves towards shallower trees. Where the parent walk is the right tool, and where it cannot answer at all, is discussed in [the parent walk's home ground](parent-walk.md), together with a tree-view use case.
 
 Static pre/post numbers answer a query in O(1), but each insertion invalidates them; here they are recomputed by a traversal before the next query (depth 100, one query per insertion, total time):
 
@@ -178,11 +178,12 @@ Reading the table:
 ### Reproducing
 
 ```
-python python/benchmarks/bench.py                              # full run
+python -m dtree.bench                                          # after pip install dtree-encoding
+python python/benchmarks/bench.py                              # full run, in a clone
 python python/benchmarks/bench.py --quick                      # a few seconds
-python python/benchmarks/bench.py --dynamic                    # only insertions and queries alternating
+python python/benchmarks/bench.py --dynamic                    # only the dynamic updates and the tree view
 dotnet run --project csharp/DTree.Tests -c Release -- bench
-dotnet run --project csharp/DTree.Tests -c Release -- bench dynamic   # only insertions and queries alternating
+dotnet run --project csharp/DTree.Tests -c Release -- bench dynamic   # only the dynamic updates and the tree view
 ```
 
 ## References
