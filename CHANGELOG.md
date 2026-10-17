@@ -1,28 +1,5 @@
 # Changelog
 
-## 1.6.0
-
-**Node handles in Python.** As in C# since 1.3.0, `insert` returns a `DNode` handle, `get_node(name)` and `try_get_node(name)` give the handle of an existing node, and every method accepts a handle wherever it accepts a name (including the and/or queries). A handle refers directly to the node's positions in Q1 and Q2, so `can_reach` on handles is two position comparisons without any lookup by name; the idea of using addresses as ids comes from Enis Olgac's original implementation, and placing the positions on the vertices was his suggestion. Internally, parents and children are now kept as direct references, so queries by name also got faster (two dictionary lookups instead of six). The name-based API is unchanged.
-
-**End of a subtree without the worst case** (Python and C#). A new child goes after the last node of its parent's subtree in Q1; that node was found by walking down the last children, which is O(depth) per insertion in adversarial shapes. Now a short walk (8 steps) handles ordinary trees as before, and beyond it the end remembered last time is reused when it validates in O(1) with DTree's own order (it lies in the subtree and its Q1 successor does not); otherwise the walk continues with path compression. Stale hints are detected, never used, so ancestors need no update when a subtree grows—the recursive update of delimiters that Enis Olgac had observed in earlier designs is avoided. Enis asked for a middle way between computing the end and storing it; the validated hint is Claude's design, chosen after measuring three variants (see the design notes). New public method `subtree_last(node)` / `SubtreeLast(node)`. The benchmarks gain a "top-down comb" shape (a chain of 3,000, then new leaves under the spine nodes from the top down), where the plain walk needs 4.5 million steps for 30,000 nodes.
-
-**Wording.** "Set queries" are now called **and/or queries on the topology**, which says what they ask: whether a vertex reaches all (and) or some (or) of a set of vertices, or is reached by all or some of them. `docs/set-queries.md` moved to [`docs/and-or-queries.md`](docs/and-or-queries.md); the old file remains as a pointer. The term *topology* now appears in the first sentence of the README, the package descriptions on PyPI and NuGet, and their keywords (wording by Enis Olgac).
-
-Tests: handles, and/or queries with handles, the top-down comb, and random sequences of inserts mixed with deletes and moves checked against the brute-force reference, once with the normal budget and once with the hint used on every insertion.
-
-Measured on Enis Olgac's NUC (`bench.py`, `-- bench`), compared with the 1.4.1 runs on the same machine:
-
-| | 1.4.1 | 1.6.0 |
-| --- | ---: | ---: |
-| Python `can_reach`, random tree of 100,000 nodes, by name | 1.4 µs | 0.9 µs |
-| Python `can_reach`, by handle | — | 0.5 µs |
-| C# `CanReach`, by name / by handle | 0.19 / 0.05 µs | 0.18 / 0.05 µs |
-| Python, building the top-down comb of 100,000 nodes | — | 0.23 s (random: 0.34 s, chain: 0.43 s) |
-| C#, building the top-down comb of 100,000 nodes | — | 0.18 s (random: 0.24 s, chain: 0.17 s) |
-| Python dynamic step (insert + query, handles), depth 1,000 / 10,000 | 3.4 / 3.9 µs | 2.6 / 2.9 µs |
-
-The top-down comb now builds as fast as the ordinary shapes; with the plain walk it would take about 4.5 million walk steps (3,000²/2 in its first round). In C#, which already had handles, the other figures are unchanged within measurement noise, as expected: the hint only matters in shapes like the comb. Two values in the Python run stand out as one-off disturbances (dynamic step at depth 100: 7.4 µs; static-numbers table, 1,000 nodes: 24 ms for DTree); the tables in `docs/and-or-queries.md` are from 1.4.1 and labeled so.
-
 ## 1.5.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23426313.
