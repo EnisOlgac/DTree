@@ -2,6 +2,8 @@
 
 ## 1.7.0
 
+Archived on Zenodo: doi:10.5281/zenodo.23437422.
+
 **Removing members from a constructed node** (Python and C#). `discard(node)` / `Discard(node)` takes a node out of the set again, and `node in s` / `Contains(node)` tests membership. If the removed node held the minimal (or maximal) position in Q1 or Q2, the remaining members are scanned for the new one, O(k); `UMin` also rebuilds its list of topmost members when one of them is removed. With this, the collapsed nodes of a tree view can be kept as one `UMin` across expand and collapse. Listed as an open point by Enis Olgac.
 
 **Tree views.** Two methods for showing a tree with collapsed nodes: `UMin.covering(v)` / `Covering(v)` returns the topmost member of the set that reaches `v`, O(log k)—with the collapsed nodes as a `UMin`, the visible row that contains `v`—and `next_in_q1(node)` / `NextInQ1(node)` returns the next node in Q1, the display order. `discard` now finds the member by binary search.
