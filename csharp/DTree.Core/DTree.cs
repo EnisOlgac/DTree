@@ -17,6 +17,7 @@ namespace DirectedTrees {
         internal List<DNode>? Kids;             // children in insertion order (Q1 order)
         internal DList.Cell C1 = null!;         // position in Q1
         internal DList.Cell C2 = null!;         // position in Q2
+        internal DNode? Last;                   // hint: last node of the subtree in Q1 (validated before use)
 
         /// <summary>The parent node; null for the root.</summary>
         public DNode? Parent => Up == null || Up.Owner == null ? null : Up;
@@ -121,20 +122,66 @@ namespace DirectedTrees {
         }
 
         private void Attach(DNode parent, DNode child) {
-            var last = SubtreeLast(parent, true);
+            var last = LastInQ1(parent);
             child.C2 = _q2.InsertNewAfter(child.Name, parent.C2);   // first child in Q2
             child.C1 = _q1.InsertNewAfter(child.Name, last.C1);     // last child in Q1
+            child.C1.Node = child.C2.Node = child;
             child.Up = parent;
             (parent.Kids ??= new List<DNode>()).Add(child);
+            parent.Last = child;                                    // child is now the last node of parent's subtree
+        }
+
+        // -- the end of a subtree --------------------------------------------------
+
+        internal static int Budget = 8;  // steps of the plain walk before the validated hint is used (tests may set 0)
+
+        /// <summary>x is p or lies in p's subtree.</summary>
+        private static bool InSubtree(DNode p, DNode x) =>
+            x == p || (DList.Less(p.C1, x.C1) && DList.Less(p.C2, x.C2));
+
+        /// <summary>x is the last node of p's subtree in Q1: x lies in it and x's Q1 successor does not.</summary>
+        private bool IsLast(DNode p, DNode? x) {
+            if (x == null || x.Owner != this || !InSubtree(p, x)) return false;
+            var next = x.C1.Next!;
+            return next.Den == 0 || !InSubtree(p, next.Node!);
         }
 
         /// <summary>
-        /// Last node of u's subtree in Q1 (follow last children) or Q2 (follow first children), in O(depth).
+        /// Last node of p's subtree in Q1. A short walk down the last children finds it on ordinary
+        /// trees; beyond the budget, the end remembered last time (p.Last) is used if it validates in
+        /// O(1); otherwise the walk continues, stops at a node whose own hint validates, and every node
+        /// passed gets the found end as its new hint (path compression). Stale hints are never used,
+        /// so ancestors' hints need no update when a subtree grows.
         /// </summary>
-        private static DNode SubtreeLast(DNode u, bool q1) {
-            var w = u;
-            while (w.Kids is { Count: > 0 } kids) w = q1 ? kids[^1] : kids[0];
+        private DNode LastInQ1(DNode p) {
+            var w = p;
+            for (int k = 0; k < Budget && w.Kids is { Count: > 0 } kids; k++) w = kids[^1];
+            if (w.Kids is not { Count: > 0 }) return w;
+            if (IsLast(p, p.Last)) return p.Last!;
+            var path = new List<DNode> { p };
+            w = p;
+            while (w.Kids is { Count: > 0 } kids) {
+                w = kids[^1];
+                if (IsLast(w, w.Last)) { w = w.Last!; break; }
+                path.Add(w);
+            }
+            foreach (var v in path) v.Last = w;
             return w;
+        }
+
+        /// <summary>Last node of u's subtree in Q2 (siblings reversed): follow first children.</summary>
+        private static DNode LastInQ2(DNode u) {
+            var w = u;
+            while (w.Kids is { Count: > 0 } kids) w = kids[0];
+            return w;
+        }
+
+        /// <summary>Last node of the subtree of node in Q1 (the subtree is the block from node to it). Usually O(1) when asked again.</summary>
+        public string SubtreeLast(string node) => LastInQ1(Require(node)).Name;
+
+        public DNode SubtreeLast(DNode node) {
+            Own(node);
+            return LastInQ1(node);
         }
 
         // -- structural reconfiguration -------------------------------------------
@@ -165,8 +212,8 @@ namespace DirectedTrees {
             Own(node);
             if (node.Up == _source) throw new InvalidOperationException("the root cannot be deleted");
             var removed = SubtreeNodes(node);
-            _q1.CutBlockCells(node.C1, SubtreeLast(node, true).C1);
-            _q2.CutBlockCells(node.C2, SubtreeLast(node, false).C2);
+            _q1.CutBlockCells(node.C1, LastInQ1(node).C1);
+            _q2.CutBlockCells(node.C2, LastInQ2(node).C2);
             node.Up!.Kids!.Remove(node);
             foreach (var n in removed) Forget(n);
             return removed.Select(n => n.Name).ToList();
@@ -185,16 +232,20 @@ namespace DirectedTrees {
             if (u.Up == _source) throw new InvalidOperationException("the root cannot be moved");
             if (newParent == u || CanReach(u, newParent))
                 throw new InvalidOperationException("newParent lies inside the subtree being moved");
-            var block1 = _q1.CutBlockCells(u.C1, SubtreeLast(u, true).C1);
-            var block2 = _q2.CutBlockCells(u.C2, SubtreeLast(u, false).C2);
+            var uLast = LastInQ1(u);
+            var block1 = _q1.CutBlockCells(u.C1, uLast.C1);
+            var block2 = _q2.CutBlockCells(u.C2, LastInQ2(u).C2);
+            foreach (var c in block1) c.Node!.Owner = null;     // detached for a moment: hints into the block are not valid
             u.Up!.Kids!.Remove(u);
             // Same placement rule as Insert: Q2 right after the parent,
             // Q1 right after the current last node of the parent's subtree.
-            var last = SubtreeLast(newParent, true);
+            var last = LastInQ1(newParent);
             _q2.PasteCellsAfter(block2, newParent.C2);
             _q1.PasteCellsAfter(block1, last.C1);
+            foreach (var c in block1) c.Node!.Owner = this;
             u.Up = newParent;
             (newParent.Kids ??= new List<DNode>()).Add(u);
+            newParent.Last = uLast;
             Reshapes++;
         }
 
@@ -204,6 +255,7 @@ namespace DirectedTrees {
             Reshapes++;
             n.Up = null;
             n.Kids = null;
+            n.Last = null;
         }
 
         // -- accessors -------------------------------------------------------------
@@ -230,7 +282,7 @@ namespace DirectedTrees {
 
         public bool TryGetNode(string name, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out DNode node) => _nodes.TryGetValue(name, out node);
 
-        // -- set queries -----------------------------------------------------------
+        // -- and/or queries on the topology -----------------------------------------
 
         /// <summary>Constructed node VMin: the minimum of each index over the nodes, in the target role (see the class <c>VMin</c>).</summary>
         public VMin VMin(IEnumerable<string> nodes) {
@@ -333,7 +385,7 @@ namespace DirectedTrees {
 
         private List<DNode> SubtreeNodes(DNode node) {
             var result = new List<DNode>();
-            var end = SubtreeLast(node, true).C1;
+            var end = LastInQ1(node).C1;
             for (var c = node.C1; ; c = c.Next!) {
                 result.Add(_nodes[c.Name]);
                 if (c == end) break;

@@ -90,6 +90,11 @@ Check if one node cannot reach another.
 
 ### Ancestry and Structure
 
+#### `string SubtreeLast(string node)` / `DNode SubtreeLast(DNode node)`
+- Returns the last node of the subtree of `node` in Q1; the subtree is the contiguous block from `node` to it.
+- A short walk down the last children finds it on ordinary trees; beyond that, the end remembered last time is reused when it validates in O(1) (it lies in the subtree and its Q1 successor does not). Asked again for the same node, it is usually O(1).
+- Python: `subtree_last(node)`.
+
 #### `bool IsRoot(string node)`
 - Returns `true` if `node` is the root of the tree.
 
@@ -123,9 +128,9 @@ Check if one node cannot reach another.
 - Returns the sequence of nodes on the path from the root to `node`.
 - The first entry in the list is the root itself.
 
-### Set Queries
+### And/or Queries on the Topology
 
-A constructed node stands for a set of nodes S (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum (`VMin`, `UMin`) or maximum (`VMax`, `UMax`) of each index over S, separately in Q1 and Q2. `V` means S takes the target role, `CanReach(u, S)`; `U` means the source role, `CanReach(S, v)`. A constructed node stores members, not positions, and stays valid while nodes are inserted; after a deletion or a `CutNPaste` it is recomputed on its next use. All methods accept names or `DNode` handles. See [set-queries.md](set-queries.md).
+"u reaches all of S" is a conjunction (and), "u reaches some of S" a disjunction (or); likewise for "reached by". A constructed node stands for a set of nodes S (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum (`VMin`, `UMin`) or maximum (`VMax`, `UMax`) of each index over S, separately in Q1 and Q2. `V` means S takes the target role, `CanReach(u, S)`; `U` means the source role, `CanReach(S, v)`. A constructed node stores members, not positions, and stays valid while nodes are inserted; after a deletion or a `CutNPaste` it is recomputed on its next use. All methods accept names or `DNode` handles. See [and-or-queries.md](and-or-queries.md).
 
 #### `VMin VMin(IEnumerable<string> nodes)`, `VMax VMax(…)`, `UMin UMin(…)`, `UMax UMax(…)`
 - Build the constructed node of `nodes`; each also takes `IEnumerable<DNode>`.

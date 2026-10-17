@@ -52,7 +52,7 @@ _GROWTH = 2  # each doubling of the region raises the required spacing by this f
 
 
 class _Cell:
-    __slots__ = ("name", "prev", "next", "num", "den")
+    __slots__ = ("name", "prev", "next", "num", "den", "node")
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -60,6 +60,7 @@ class _Cell:
         self.next: Optional[_Cell] = None
         self.num = 0
         self.den = 1
+        self.node: Optional["DNode"] = None  # the tree node owning this cell (DTree only)
 
 
 class DList:
@@ -296,13 +297,52 @@ class DList:
         return f"{self.name}: [{', '.join(self)}]"
 
 
+class DNode:
+    """Handle of a tree node: refers directly to its positions in Q1 and Q2.
+
+    Returned by ``DTree.insert`` and ``DTree.get_node``. Every DTree method accepts a
+    handle wherever it accepts a node name; with handles, ``can_reach`` is two position
+    comparisons without any lookup by name. The idea of using addresses as ids comes from
+    Enis Olgac's original implementation.
+    """
+
+    __slots__ = ("name", "up", "kids", "c1", "c2", "last", "owner")
+
+    def __init__(self, name: str, owner: "DTree") -> None:
+        self.name = name
+        self.up: Optional[DNode] = None      # parent (None for the root)
+        self.kids: Optional[List[DNode]] = None
+        self.c1: Optional[_Cell] = None      # position in Q1
+        self.c2: Optional[_Cell] = None      # position in Q2
+        self.last: Optional[DNode] = None    # hint: last node of the subtree in Q1 (validated before use)
+        self.owner: Optional[DTree] = owner  # None once the node has been removed
+
+    @property
+    def parent(self) -> Optional["DNode"]:
+        return self.up
+
+    @property
+    def children(self) -> List["DNode"]:
+        return list(self.kids or ())
+
+    @property
+    def is_in_tree(self) -> bool:
+        return self.owner is not None
+
+    def __repr__(self) -> str:
+        return f"DNode({self.name!r})" if self.owner is not None else f"DNode({self.name!r}, removed)"
+
+
+_BUDGET = 8  # steps of the plain walk to the end of a subtree before the validated hint is used
+
+
 class DTree:
     """Single-rooted directed tree with dual projections Q1 and Q2."""
 
     def __init__(self, tree_id: str = "P1") -> None:
         self.tree_id = tree_id
-        self._parent: Dict[str, str] = {}  # child -> parent (root -> SOURCE)
-        self._children: Dict[str, List[str]] = {}  # parent -> children, insertion order
+        self._nodes: Dict[str, DNode] = {}
+        self._root: Optional[DNode] = None
         self._q1 = DList(f"{tree_id}.Q1")
         self._q2 = DList(f"{tree_id}.Q2")
         self.edge_log: List[str] = []
@@ -328,128 +368,228 @@ class DTree:
                         tree.insert(parent.strip(), child)
         return tree
 
-    def insert(self, parent: str, child: str) -> None:
-        """Add the edge parent -> child.
+    def insert(self, parent, child: str) -> DNode:
+        """Add the edge parent -> child and return the handle of ``child``.
 
-        The first call makes ``parent`` the root. Afterwards ``parent`` must
-        already exist and ``child`` must not.
+        ``parent`` is a name or a handle. The first call makes ``parent`` the root.
+        Afterwards ``parent`` must already exist and ``child`` must not.
         """
-        if parent in (SOURCE, SINK) or child in (SOURCE, SINK):
+        if child in (SOURCE, SINK) or (isinstance(parent, str) and parent in (SOURCE, SINK)):
             raise ValueError("SOURCE/SINK markers cannot be tree nodes")
-        if not self._parent:
-            self._attach(SOURCE, parent)
-        elif parent not in self._parent:
-            raise KeyError(f"parent {parent!r} is not in the tree")
-        if child in self._parent:
+        if self._root is None:
+            if isinstance(parent, DNode):
+                raise ValueError("the first insert names the root by its name")
+            self._root = self._new_node(parent, None)
+        p = self._node(parent)
+        if child in self._nodes:
             raise ValueError(f"child {child!r} is already in the tree")
-        self._attach(parent, child)
-        self.edge_log.append(f"({parent}, {child})")
+        n = self._new_node(child, p)
+        self.edge_log.append(f"({p.name}, {child})")
+        return n
 
-    def _attach(self, parent: str, child: str) -> None:
-        end = self._subtree_end_q1(parent)
-        self._q2.insert_after(child, parent)
-        self._q1.insert_before(child, end)
-        self._parent[child] = parent
-        self._children.setdefault(parent, []).append(child)
+    def _new_node(self, name: str, p: Optional[DNode]) -> DNode:
+        n = DNode(name, self)
+        q1, q2 = self._q1, self._q2
+        if p is None:                                   # the root
+            c1, c2 = q1._new(name), q2._new(name)
+            q1._link_after(c1, q1.first)
+            q2._link_after(c2, q2.first)
+        else:
+            w = self._subtree_last_node(p)              # Q1: after the end of p's subtree
+            c2 = q2._new(name)                          # Q2: right after p
+            q2._link_after(c2, p.c2)
+            c1 = q1._new(name)
+            q1._link_after(c1, w.c1)
+            n.up = p
+            if p.kids is None:
+                p.kids = [n]
+            else:
+                p.kids.append(n)
+            p.last = n                                  # n is now the last node of p's subtree
+        c1.node = c2.node = n
+        n.c1, n.c2 = c1, c2
+        self._nodes[name] = n
+        return n
 
-    def _subtree_end_q1(self, u: str) -> str:
-        """First node after u in Q1 that u cannot reach (may be SINK)."""
-        return self._q1.next(self._subtree_last(u, self._q1))
+    # -- the end of a subtree in Q1 ---------------------------------------
+    @staticmethod
+    def _in(p: DNode, x: DNode) -> bool:
+        """x is p or lies in p's subtree."""
+        if x is p:
+            return True
+        a, b = p.c1, x.c1
+        if not a.num * b.den < b.num * a.den:
+            return False
+        a, b = p.c2, x.c2
+        return a.num * b.den < b.num * a.den
 
-    def _subtree_last(self, u: str, q: DList) -> str:
-        """Last node of u's subtree in projection q, found in O(depth).
+    def _is_last(self, p: DNode, x: Optional[DNode]) -> bool:
+        """x is the last node of p's subtree in Q1: x lies in it and x's Q1 successor does not."""
+        if x is None or x.owner is not self or not self._in(p, x):
+            return False
+        nxt = x.c1.next
+        return nxt.den == 0 or not self._in(p, nxt.node)
 
-        Q1 lists children in insertion order, so its last node is reached by
-        following last children; Q2 reverses siblings, so by following first
-        children.
+    def _subtree_last_node(self, p: DNode) -> DNode:
+        """Last node of p's subtree in Q1.
+
+        A short walk down the last children finds it on ordinary trees. Beyond _BUDGET steps,
+        the end remembered last time (p.last) is used if it validates in O(1); otherwise the
+        walk continues, stops at a node whose own hint validates, and every node passed gets
+        the found end as its new hint (path compression). Stale hints are never used, so the
+        hints of ancestors need no update when a subtree grows.
         """
-        pick = -1 if q is self._q1 else 0
-        w = u
-        while w in self._children:
-            w = self._children[w][pick]
+        w, k = p, 0
+        while w.kids and k < _BUDGET:
+            w = w.kids[-1]
+            k += 1
+        if not w.kids:
+            return w
+        if self._is_last(p, p.last):
+            return p.last
+        path, w = [p], p
+        while w.kids:
+            w = w.kids[-1]
+            if self._is_last(w, w.last):
+                w = w.last
+                break
+            path.append(w)
+        for v in path:
+            v.last = w
         return w
 
+    @staticmethod
+    def _subtree_first_last_q2(p: DNode) -> DNode:
+        """Last node of p's subtree in Q2 (siblings reversed): follow first children."""
+        w = p
+        while w.kids:
+            w = w.kids[0]
+        return w
+
+    def subtree_last(self, node):
+        """Last node of the subtree of ``node`` in Q1, as a name (the subtree is the block from
+        ``node`` to it). Usually O(1) when asked again for the same node."""
+        return self._subtree_last_node(self._node(node)).name
+
     # -- structural reconfiguration ---------------------------------------
-    def delete(self, node: str) -> None:
+    def delete(self, node) -> None:
         """Remove ``node``; its children are re-attached to its parent.
 
         Deleting the root is disallowed.
         """
-        self._require(node)
-        if self.is_root(node):
+        n = self._node(node)
+        if n is self._root:
             raise ValueError("the root cannot be deleted")
-        parent = self._parent.pop(node)
-        kids = self._children.pop(node, [])
-        siblings = self._children[parent]
-        i = siblings.index(node)
-        siblings[i : i + 1] = kids
+        p = n.up
+        kids = n.kids or []
+        i = p.kids.index(n)
+        p.kids[i : i + 1] = kids
         for k in kids:
-            self._parent[k] = parent
-        if not siblings:
-            del self._children[parent]
-        self._q1.remove(node)
-        self._q2.remove(node)
+            k.up = p
+        if not p.kids:
+            p.kids = None
+        self._q1.remove(n.name)
+        self._q2.remove(n.name)
+        self._forget(n)
         self._reshapes += 1
 
-    def delete_subtree(self, node: str) -> List[str]:
+    def delete_subtree(self, node) -> List[str]:
         """Remove ``node`` together with all its descendants.
 
         Returns the removed nodes in Q1 order. Deleting the root's subtree
         (the whole tree) is disallowed, as for delete.
         """
-        self._require(node)
-        if self.is_root(node):
+        n = self._node(node)
+        if n is self._root:
             raise ValueError("the root cannot be deleted")
-        last1 = self._subtree_last(node, self._q1)
-        last2 = self._subtree_last(node, self._q2)
-        removed = self._q1.cut_block(node, last1)
-        self._q2.cut_block(node, last2)
-        parent = self._parent[node]
-        self._children[parent].remove(node)
-        if not self._children[parent]:
-            del self._children[parent]
+        last1 = self._subtree_last_node(n)
+        last2 = self._subtree_first_last_q2(n)
+        removed = self._q1.cut_block(n.name, last1.name)
+        self._q2.cut_block(n.name, last2.name)
+        p = n.up
+        p.kids.remove(n)
+        if not p.kids:
+            p.kids = None
         for v in removed:
-            del self._parent[v]
-            self._children.pop(v, None)
+            self._forget(self._nodes[v])
         self._reshapes += 1
         return removed
 
-    def cut_n_paste(self, subtree_root: str, new_parent: str) -> None:
+    def cut_n_paste(self, subtree_root, new_parent) -> None:
         """Detach the subtree rooted at ``subtree_root`` and attach it under ``new_parent``.
 
         The subtree keeps its internal shape and becomes the last child of
         ``new_parent``. ``new_parent`` must not lie inside the moved subtree,
         and the root cannot be moved.
         """
-        self._require(subtree_root)
-        self._require(new_parent)
-        if self.is_root(subtree_root):
+        u = self._node(subtree_root)
+        p = self._node(new_parent)
+        if u is self._root:
             raise ValueError("the root cannot be moved")
-        if new_parent == subtree_root or self.can_reach(subtree_root, new_parent):
+        if p is u or self._in(u, p):
             raise ValueError("new_parent lies inside the subtree being moved")
-        u = subtree_root
-        last1 = self._subtree_last(u, self._q1)
-        last2 = self._subtree_last(u, self._q2)
-        block1 = self._q1.cut_block(u, last1)
-        block2 = self._q2.cut_block(u, last2)
-        old = self._parent[u]
-        self._children[old].remove(u)
-        if not self._children[old]:
-            del self._children[old]
+        last1 = self._subtree_last_node(u)
+        last2 = self._subtree_first_last_q2(u)
+        block1 = self._q1.cut_block(u.name, last1.name)
+        block2 = self._q2.cut_block(u.name, last2.name)
+        moved = [self._nodes[v] for v in block1]
+        for v in moved:
+            v.owner = None                 # detached for a moment: their hints and cells are not valid
+        old = u.up
+        old.kids.remove(u)
+        if not old.kids:
+            old.kids = None
         # Same placement rule as insert: Q2 right after the parent,
         # Q1 right after the current last node of the parent's subtree.
-        last = self._subtree_last(new_parent, self._q1)
-        self._q2.paste_block_after(block2, new_parent)
-        self._q1.paste_block_after(block1, last)
-        self._parent[u] = new_parent
+        last = self._subtree_last_node(p)
+        self._q2.paste_block_after(block2, p.name)
+        self._q1.paste_block_after(block1, last.name)
+        for v in moved:                    # the pasted cells are new objects
+            v.owner = self
+            v.c1, v.c2 = self._q1._cells[v.name], self._q2._cells[v.name]
+            v.c1.node = v.c2.node = v
+        u.up = p
+        if p.kids is None:
+            p.kids = [u]
+        else:
+            p.kids.append(u)
+        p.last = last1
         self._reshapes += 1
-        self._children.setdefault(new_parent, []).append(u)
+
+    def _forget(self, n: DNode) -> None:
+        del self._nodes[n.name]
+        n.owner = None
+        n.up = n.kids = n.last = None
+
+    # -- handles and names -------------------------------------------------
+    def get_node(self, name: str) -> DNode:
+        """Handle of the node called ``name``. Raises KeyError if absent."""
+        n = self._nodes.get(name)
+        if n is None:
+            raise KeyError(f"node {name!r} is not in the tree")
+        return n
+
+    def try_get_node(self, name: str) -> Optional[DNode]:
+        return self._nodes.get(name)
+
+    def _node(self, x) -> DNode:
+        """Resolve a name or a handle of this tree; raises KeyError otherwise."""
+        if x.__class__ is DNode:
+            if x.owner is not self:
+                raise KeyError(f"node {x.name!r} is not in this tree")
+            return x
+        n = self._nodes.get(x)
+        if n is None:
+            raise KeyError(f"node {x!r} is not in the tree")
+        return n
+
+    def _name(self, x) -> str:
+        return x.name if x.__class__ is DNode else x
 
     # -- accessors --------------------------------------------------------
     @property
     def root(self) -> Optional[str]:
-        kids = self._children.get(SOURCE)
-        return kids[0] if kids else None
+        return self._root.name if self._root is not None else None
 
     @property
     def source(self) -> str:
@@ -483,110 +623,138 @@ class DTree:
 
     @property
     def size(self) -> int:
-        return len(self._parent)
+        return len(self._nodes)
 
     @property
     def nodes(self) -> List[str]:
         return self.q1
 
+    @property
+    def _parent(self) -> Dict[str, str]:
+        """child name -> parent name (root -> SOURCE); a snapshot, e.g. for comparisons."""
+        return {n.name: (n.up.name if n.up is not None else SOURCE) for n in self._nodes.values()}
+
     def __len__(self) -> int:
         return self.size
 
-    def __contains__(self, node: str) -> bool:
+    def __contains__(self, node) -> bool:
         return self.contains(node)
 
     def __repr__(self) -> str:
         return f"DTree({self.tree_id!r}, size={self.size})\n  {self._q1!r}\n  {self._q2!r}"
 
     # -- queries ----------------------------------------------------------
-    def contains(self, node: str) -> bool:
-        return node in self._parent
+    def contains(self, node) -> bool:
+        if node.__class__ is DNode:
+            return node.owner is self
+        return node in self._nodes
 
-    def get_parent(self, node: str) -> Optional[str]:
+    def get_parent(self, node) -> Optional[str]:
         """Parent of ``node``; ``None`` for the root. Raises KeyError if absent."""
-        self._require(node)
-        p = self._parent[node]
-        return None if p == SOURCE else p
+        p = self._node(node).up
+        return p.name if p is not None else None
 
-    def children(self, node: str) -> List[str]:
-        self._require(node)
-        return list(self._children.get(node, []))
+    def children(self, node) -> List[str]:
+        return [k.name for k in (self._node(node).kids or ())]
 
-    def can_reach(self, u: str, v: str) -> bool:
-        """True if there is a directed path of length >= 1 from u to v.
+    def can_reach(self, u, v) -> bool:
+        """True if there is a directed path of length >= 1 from u to v (names or handles).
 
-        Irreflexive: can_reach(u, u) is False.
+        Irreflexive: can_reach(u, u) is False. With handles: two position comparisons.
         """
-        if u not in self._q1 or v not in self._q1:
+        if u.__class__ is DNode:
+            if u.owner is not self:
+                return False
+        else:
+            u = self._nodes.get(u)
+            if u is None:
+                return False
+        if v.__class__ is DNode:
+            if v.owner is not self:
+                return False
+        else:
+            v = self._nodes.get(v)
+            if v is None:
+                return False
+        a, b = u.c1, v.c1
+        if not a.num * b.den < b.num * a.den:
             return False
-        return self._q1.precedes(u, v) and self._q2.precedes(u, v)
+        a, b = u.c2, v.c2
+        return a.num * b.den < b.num * a.den
 
-    def can_not_reach(self, u: str, v: str) -> bool:
+    def can_not_reach(self, u, v) -> bool:
         return not self.can_reach(u, v)
 
-    def is_root(self, node: str) -> bool:
-        return node == self.root
+    def is_root(self, node) -> bool:
+        return self.contains(node) and self._node(node) is self._root
 
-    def is_leaf(self, node: str) -> bool:
-        self._require(node)
-        return node not in self._children
+    def is_leaf(self, node) -> bool:
+        return not self._node(node).kids
 
-    def is_ancestor(self, u: str, v: str) -> bool:
+    def is_ancestor(self, u, v) -> bool:
         """True if u is a proper ancestor of v (u lies above v on v's root path)."""
-        return self.contains(u) and self.contains(v) and self.can_reach(u, v)
+        return self.can_reach(u, v)
 
-    def is_descendant(self, u: str, v: str) -> bool:
+    def is_descendant(self, u, v) -> bool:
         """True if u lies below v. Equivalent to is_ancestor(v, u)."""
-        return self.is_ancestor(v, u)
+        return self.can_reach(v, u)
 
-    def same_subtree(self, u: str, v: str) -> bool:
+    def same_subtree(self, u, v) -> bool:
         """True if both nodes are in this tree (and so share its root)."""
         return self.contains(u) and self.contains(v)
 
-    def subtree(self, node: str) -> List[str]:
+    def subtree(self, node) -> List[str]:
         """Nodes of the subtree rooted at ``node``, in Q1 order."""
-        self._require(node)
-        out, v = [node], self._q1.next(node)
-        while v != SINK and self.can_reach(node, v):
-            out.append(v)
-            v = self._q1.next(v)
-        return out
+        n = self._node(node)
+        out, c = [n.name], n.c1.next
+        end = self._subtree_last_node(n).c1
+        if end is n.c1:
+            return out
+        while True:
+            out.append(c.name)
+            if c is end:
+                return out
+            c = c.next
 
-    def subtree_size(self, node: str) -> int:
+    def subtree_size(self, node) -> int:
         return len(self.subtree(node))
 
-    def path_to_root(self, node: str) -> List[str]:
+    def path_to_root(self, node) -> List[str]:
         """[node, parent, ..., root]."""
-        self._require(node)
-        out, v = [], node
-        while v != SOURCE:
-            out.append(v)
-            v = self._parent[v]
+        out, w = [], self._node(node)
+        while w is not None:
+            out.append(w.name)
+            w = w.up
         return out
 
-    def root_to_path(self, node: str) -> List[str]:
+    def root_to_path(self, node) -> List[str]:
         """[root, ..., parent, node]."""
         return self.path_to_root(node)[::-1]
 
-    def path(self, u: str, v: str) -> List[str]:
+    def path(self, u, v) -> List[str]:
         """Nodes from u down to v, both included; [u] when u == v.
 
         Raises if u != v and u cannot reach v.
         """
-        if u != v and not self.can_reach(u, v):
-            raise ValueError(f"{u!r} cannot reach {v!r}")
-        out, w = [v], v
-        while w != u:
-            w = self._parent[w]
-            out.append(w)
+        a, b = self._node(u), self._node(v)
+        if a is not b and not self.can_reach(a, b):
+            raise ValueError(f"{a.name!r} cannot reach {b.name!r}")
+        out, w = [b.name], b
+        while w is not a:
+            w = w.up
+            out.append(w.name)
         return out[::-1]
 
-    def depth(self, node: str) -> int:
+    def depth(self, node) -> int:
         """Distance from the root; the root has depth 0."""
-        return len(self.path_to_root(node)) - 1
+        d, w = 0, self._node(node).up
+        while w is not None:
+            d += 1
+            w = w.up
+        return d
 
     # -- helpers ----------------------------------------------------------
-    # -- set queries ------------------------------------------------------
+    # -- and/or queries on the topology -----------------------------------
     def vmin(self, nodes: Iterable[str] = ()) -> "VMin":
         """Constructed node VMin: the minimum of each index over the nodes (see VMin)."""
         return VMin(self, nodes)
@@ -603,9 +771,8 @@ class DTree:
         """Constructed node UMax: the maximum of each index over the nodes (see UMax)."""
         return UMax(self, nodes)
 
-    def _require(self, node: str) -> None:
-        if node not in self._parent:
-            raise KeyError(f"node {node!r} is not in the tree")
+    def _require(self, node) -> None:
+        self._node(node)
 
 
 class _VNode:
@@ -639,7 +806,8 @@ class _VNode:
         return q.precedes(v, c) if self._lowest else q.precedes(c, v)
 
     def add(self, node: str) -> "_VNode":
-        """Add a node of the tree to the set; returns the constructed node itself."""
+        """Add a node of the tree (name or handle) to the set; returns the constructed node itself."""
+        node = self._t._name(node)
         self._t._require(node)
         if node in self._seen:
             return self
@@ -710,8 +878,9 @@ class VMin(_VNode):
 
     _lowest = True
 
-    def reaches_all(self, u: str) -> bool:
+    def reaches_all(self, u) -> bool:
         """True if u reaches every node of the set (vacuously True for an empty set)."""
+        u = self._t._name(u)
         self._check()
         t = self._t
         if not t.contains(u):
@@ -728,21 +897,23 @@ class VMax(_VNode):
 
     _lowest = False
 
-    def may_reach_some(self, u: str) -> bool:
+    def may_reach_some(self, u) -> bool:
         """Fast rejection: False means u reaches no node of the set. True is not a confirmation."""
+        u = self._t._name(u)
         self._check()
         t = self._t
         if self._c1 is None or not t.contains(u):
             return False
         return t._q1.precedes(u, self._c1) and t._q2.precedes(u, self._c2)
 
-    def reaches_some(self, u: str) -> bool:
+    def reaches_some(self, u) -> bool:
         """True if u reaches at least one node of the set (exact).
 
         The subtree of u is the block directly after u in Q1, so u reaches some member
         exactly when the first member after u in Q1 lies in it: a binary search over the
         members (kept in Q1 order) and one reachability test.
         """
+        u = self._t._name(u)
         if not self.may_reach_some(u):
             return False
         t, m = self._t, self._members
@@ -763,8 +934,9 @@ class UMax(_VNode):
 
     _lowest = False
 
-    def reached_by_all(self, v: str) -> bool:
+    def reached_by_all(self, v) -> bool:
         """True if every node of the set reaches v (vacuously True for an empty set)."""
+        v = self._t._name(v)
         self._check()
         t = self._t
         if not t.contains(v):
@@ -824,16 +996,18 @@ class UMin(_VNode):
             if not (self._tops and t.can_reach(self._tops[-1], v)):
                 self._tops.append(v)
 
-    def may_be_reached_by_some(self, v: str) -> bool:
+    def may_be_reached_by_some(self, v) -> bool:
         """Fast rejection: False means no node of the set reaches v; True is not a confirmation."""
+        v = self._t._name(v)
         self._check()
         t = self._t
         if self._c1 is None or not t.contains(v):
             return False
         return t._q1.precedes(self._c1, v) and t._q2.precedes(self._c2, v)
 
-    def reached_by_some(self, v: str) -> bool:
+    def reached_by_some(self, v) -> bool:
         """True if at least one node of the set reaches v (exact, O(log k))."""
+        v = self._t._name(v)
         if not self.may_be_reached_by_some(v):
             return False
         return self._covered(v)

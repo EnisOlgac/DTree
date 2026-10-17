@@ -34,6 +34,7 @@ namespace DirectedTrees {
             internal Cell? Next;
             internal long Num;
             internal long Den = 1;
+            internal DNode? Node;               // the tree node owning this cell (DTree only)
             internal Cell(string name) { Name = name; }
         }
 

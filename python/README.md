@@ -1,6 +1,6 @@
 # DTree for Python
 
-Python implementation of `DTree`, the incremental encoding of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/DTree/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). No dependencies; Python 3.8+.
+Python implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/DTree/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). No dependencies; Python 3.8+.
 
 ```
 pip install dtree-encoding
@@ -50,18 +50,22 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 | `SameSubtree`, `SubtreeSize` | `same_subtree`, `subtree_size` (plus `subtree`) |
 | `Depth` | `depth` (root = 0) |
 | `PathToRoot`, `RootToPath` | `path_to_root`, `root_to_path` (plus `path(u, v)`) |
+| `GetNode`, `TryGetNode`, `DNode` | `get_node`, `try_get_node`, `DNode` (node handles; `insert` returns one) |
+| `SubtreeLast` | `subtree_last` (last node of a subtree in Q1) |
 | `VMin`, `VMax`, `UMin`, `UMax` (of nodes) | `vmin`, `vmax`, `umin`, `umax` |
 | `ReachesAll`, `MayReachSome`, `ReachesSome` | `reaches_all`, `may_reach_some`, `reaches_some` |
 | `ReachedByAll`, `MayBeReachedBySome`, `ReachedBySome` | `reached_by_all`, `may_be_reached_by_some`, `reached_by_some` |
 
 ## Semantics
 
+- Every method accepts a node name or a node handle (`DNode`). `insert` returns the handle of the new node, `get_node(name)` gives the handle of an existing one. A handle refers directly to the node's positions in Q1 and Q2, so `can_reach` on handles is two position comparisons without any lookup by name. Handles of deleted nodes, or of another tree, are rejected (KeyError) or reported as unreachable.
+
 - `can_reach(u, v)` is irreflexive: no node reaches itself, so `can_reach(u, u)` is `False`. (The C# prototype is reflexive.)
 - `is_ancestor(u, v)` equals `can_reach(u, v)` and is likewise proper.
 - `delete(v)` re-attaches v's children to v's parent, in v's place among its siblings.
 - `delete_subtree(v)` removes v with all its descendants and returns them in Q1 order.
 - `cut_n_paste(u, p)` moves the subtree rooted at u under p as p's last child; p must not lie inside u's subtree.
-- The constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [set queries](https://github.com/EnisOlgac/DTree/blob/main/docs/set-queries.md).
+- And/or queries on the topology: the constructed nodes `vmin(S)`, `vmax(S)` (S as target) and `umin(S)`, `umax(S)` (S as source) take the minimum or maximum of each index over S, separately in Q1 and Q2. `reaches_all` and `reached_by_all` are exact O(1) tests; `may_reach_some` and `may_be_reached_by_some` are only filters, and `reaches_some` and `reached_by_some` are exact in O(log k). A constructed node stays valid under insertions and is recomputed automatically after `delete`, `delete_subtree` or `cut_n_paste`. See [and/or queries on the topology](https://github.com/EnisOlgac/DTree/blob/main/docs/and-or-queries.md).
 - Projection positions are fractions: a new node gets the mediant (a+c)/(b+d) of its neighbors, so normally no other node moves. Only rare alternating insertion patterns trigger a local renumbering. Tree depth and width are unbounded. `t.Q1.index(v)` returns a position as a `Fraction`.
 
 ## Tests
@@ -81,7 +85,7 @@ python benchmarks/bench.py --dynamic  # only insertions and queries alternating
 python benchmarks/bench.py 1000000    # custom sizes
 ```
 
-The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, set queries with constructed nodes, and dynamic updates (insertions and queries alternating). Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
+The script prints Markdown tables: build time and renumbering counts per tree shape (random, chain, star at the root, star at an inner node, alternating worst case), list growth at either end, and timings for `can_reach`, `depth`, `delete`, `cut_n_paste` and `delete_subtree`, and comparisons with a classical parent walk: reachability by tree depth, and/or queries with constructed nodes, and dynamic updates (insertions and queries alternating). Each `DList` keeps the counters `renumber_count` and `renumber_moved`, so the same figures are available in your own code via `t.Q1` and `t.Q2`.
 
 ## Provenance
 

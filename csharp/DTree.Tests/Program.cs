@@ -47,6 +47,9 @@ namespace DirectedTrees.Tests {
                 ("constructed nodes: incremental add", Tests.ConstructedIncrementalAdd),
                 ("constructed nodes: empty set", Tests.ConstructedEmptySet),
                 ("constructed nodes survive inserts, deletes and moves", Tests.ConstructedSurvivesChanges),
+                ("subtree end: top-down comb", Tests.SubtreeEndTopDownComb),
+                ("subtree end: inserts mixed with deletes and moves", Tests.SubtreeEndMixed),
+                ("subtree end: hint path always (budget 0)", Tests.SubtreeEndHintPathAlways),
             };
             var total = Stopwatch.StartNew();
             foreach (var (name, body) in tests) {
@@ -647,6 +650,85 @@ namespace DirectedTrees.Tests {
         }
     }
 
+    internal static partial class Tests {
+        private static string RefLast(Reference r, string v) {
+            var w = v;
+            while (r.Children.TryGetValue(w, out var kids) && kids.Count > 0) w = kids[^1];
+            return w;
+        }
+
+        public static void SubtreeEndTopDownComb() {
+            // a chain, then new leaves under the spine nodes from the top down: the plain walk
+            // would be O(depth) per insertion here
+            var t = new DTree();
+            var r = new Reference();
+            const int d = 300;
+            for (int i = 1; i < d; i++) {
+                t.Insert($"n{i - 1}", $"n{i}");
+                r.Insert($"n{i - 1}", $"n{i}");
+            }
+            int k = d;
+            for (int round = 0; round < 3; round++)
+                for (int i = 0; i < d; i++) {
+                    t.Insert($"n{i}", $"x{k}");
+                    r.Insert($"n{i}", $"x{k}");
+                    k++;
+                }
+            CheckAgainst(t, r, new Random(1));
+            foreach (var v in r.Nodes().OrderBy(_ => Guid.NewGuid()).Take(50))
+                Equal(t.SubtreeLast(v), RefLast(r, v), $"SubtreeLast({v})");
+        }
+
+        public static void SubtreeEndMixed() {
+            for (int seed = 0; seed < 25; seed++) {
+                var (t, r, rnd) = RandomTree(40, seed);
+                int k = 40;
+                for (int step = 0; step < 150; step++) {
+                    var nodes = r.Nodes();
+                    var inner = nodes.Where(n => n != r.Root).ToList();
+                    double x = rnd.NextDouble();
+                    if (x < 0.55 || inner.Count < 8) {
+                        var p = rnd.NextDouble() < 0.5 ? nodes[rnd.Next(nodes.Count)] : RefLast(r, nodes[rnd.Next(nodes.Count)]);
+                        if (rnd.NextDouble() < 0.3) p = r.Root!;
+                        t.Insert(p, $"x{k}");
+                        r.Insert(p, $"x{k}");
+                        k++;
+                    } else if (x < 0.7) {
+                        var v = inner[rnd.Next(inner.Count)];
+                        t.Delete(v);
+                        r.Delete(v);
+                    } else if (x < 0.8) {
+                        var v = inner[rnd.Next(inner.Count)];
+                        t.DeleteSubtree(v);
+                        r.DeleteSubtree(v);
+                    } else {
+                        var u = inner[rnd.Next(inner.Count)];
+                        var banned = new HashSet<string>(t.Subtree(u));
+                        var targets = nodes.Where(n => !banned.Contains(n)).ToList();
+                        var p = targets[rnd.Next(targets.Count)];
+                        t.CutNPaste(u, p);
+                        r.Move(u, p);
+                    }
+                    if (step % 10 == 0)
+                        foreach (var v in r.Nodes().OrderBy(_ => rnd.Next()).Take(10))
+                            Equal(t.SubtreeLast(v), RefLast(r, v), $"seed {seed}, step {step}: SubtreeLast({v})");
+                }
+                CheckAgainst(t, r, rnd);
+            }
+        }
+
+        public static void SubtreeEndHintPathAlways() {
+            int saved = DTree.Budget;
+            DTree.Budget = 0;           // every lookup of a subtree's end goes through the validated hint
+            try {
+                SubtreeEndMixed();
+                SubtreeEndTopDownComb();
+            } finally {
+                DTree.Budget = saved;
+            }
+        }
+    }
+
     internal static class Bench {
         private static readonly (string Name, Func<int, List<string>, Random, string> Parent)[] Shapes = {
             ("random", (i, names, rnd) => names[rnd.Next(names.Count)]),
@@ -654,6 +736,9 @@ namespace DirectedTrees.Tests {
             ("star (root)", (i, names, rnd) => "n0"),
             ("star (inner node)", (i, names, rnd) => i <= 2 ? "n0" : "n1"),
             ("alternating", (i, names, rnd) => $"n{2 * ((i - 1) / 2)}"),
+            // a chain of 3,000, then new leaves under the spine nodes from the top down, repeatedly:
+            // finding the end of a subtree by walking down the last children would be O(depth) here
+            ("top-down comb", (i, names, rnd) => i < 3000 ? names[^1] : $"n{(i - 3000) % 3000}"),
         };
 
         private static (DTree Tree, List<string> Names, double Seconds) Build(int shape, int n, int seed = 1) {
@@ -893,7 +978,7 @@ namespace DirectedTrees.Tests {
         }
 
         private static void Sets(int n, int[] depths, int k, int queries) {
-            Console.WriteLine($"\nSet queries: constructed nodes vs parent walk ({n:N0} nodes, set of {k:N0} nodes; DTree 100,000 and parent walk {queries:N0} random query nodes)\n");
+            Console.WriteLine($"\nAnd/or queries: constructed nodes vs parent walk ({n:N0} nodes, set of {k:N0} nodes; DTree 100,000 and parent walk {queries:N0} random query nodes)\n");
             Console.WriteLine("| depth | question | DTree [µs] | parent walk [µs] | factor |");
             Console.WriteLine("| ---: | --- | ---: | ---: | ---: |");
             double build = 0;

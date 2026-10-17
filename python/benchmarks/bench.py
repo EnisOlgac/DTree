@@ -10,7 +10,7 @@ Usage (from the python/ folder):
 For each tree shape it reports the build time and how often positions in Q1
 and Q2 had to be renumbered, then times the queries and structural changes.
 Finally it compares reachability with the parent walk of classical doubly linked
-trees, for single pairs and for set queries (VMin, VMax, UMin, UMax), over increasing depth,
+trees, for single pairs and for and/or queries (VMin, VMax, UMin, UMax), over increasing depth,
 and under dynamic updates, with insertions and queries alternating (including static
 pre/post numbers recomputed after each insertion).
 Timings depend on the machine; the renumbering counts do not.
@@ -34,6 +34,9 @@ SHAPES = {
     "star (inner node)": lambda i, names, rnd: "n1",
     # worst case for rational positions: always the newer half-gap, alternating sides
     "alternating": lambda i, names, rnd: f"n{2 * ((i - 1) // 2)}",
+    # a chain of 3,000, then new leaves under the spine nodes from the top down, repeatedly:
+    # finding the end of a subtree by walking down the last children would be O(depth) here
+    "top-down comb": lambda i, names, rnd: names[-1] if i < 3000 else f"n{(i - 3000) % 3000}",
 }
 
 
@@ -103,7 +106,9 @@ def bench_operations(n, queries=1_000_000):
 
     t, names, _ = build("random", n)
     pairs = [(rnd.choice(names), rnd.choice(names)) for _ in range(queries)]
-    timed("can_reach", queries, lambda: sum(t.can_reach(u, v) for u, v in pairs))
+    timed("can_reach (names)", queries, lambda: sum(t.can_reach(u, v) for u, v in pairs))
+    handles = [(t.get_node(u), t.get_node(v)) for u, v in pairs]
+    timed("can_reach (handles)", queries, lambda: sum(t.can_reach(u, v) for u, v in handles))
     timed("depth", len(names), lambda: sum(t.depth(v) for v in names))
 
     k = max(1, n // 10)
@@ -184,7 +189,7 @@ def bench_depth(n, depths, queries):
 
 
 def bench_sets(n, depths, k, queries):
-    print(f"\n### Set queries: constructed nodes vs parent walk ({n:,} nodes, set of {k:,} nodes, {queries:,} query nodes)\n")
+    print(f"\n### And/or queries: constructed nodes vs parent walk ({n:,} nodes, set of {k:,} nodes, {queries:,} query nodes)\n")
     row("depth", "question", "DTree [µs]", "parent walk [µs]", "factor")
     row("---:", "---", "---:", "---:", "---:")
     for depth in depths:
@@ -233,11 +238,17 @@ def dynamic_workload(n, depth, queries_per_insert, seed=5):
 
 
 def run_dtree(steps):
+    """DTree with node handles (insert returns the new node's handle)."""
     t, answers = DTree("D"), []
+    nodes = [None] * (len(steps) + 1)
     for p, c, qs in steps:
-        t.insert(f"n{p}", f"n{c}")
+        if c == 1:
+            nodes[1] = t.insert("n0", "n1")
+            nodes[0] = t.get_node("n0")
+        else:
+            nodes[c] = t.insert(nodes[p], f"n{c}")
         for u, v in qs:
-            answers.append(t.can_reach(f"n{u}", f"n{v}"))
+            answers.append(t.can_reach(nodes[u], nodes[v]))
     return answers
 
 

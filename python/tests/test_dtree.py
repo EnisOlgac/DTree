@@ -9,7 +9,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from dtree import SINK, SOURCE, DTree  # noqa: E402
+from dtree import SINK, SOURCE, DNode, DTree  # noqa: E402
 
 EXAMPLES = os.path.join(HERE, "..", "..", "examples")
 
@@ -242,7 +242,7 @@ class TestDList(unittest.TestCase):
 
 
 class TestVNodes(unittest.TestCase):
-    """Set queries with constructed nodes (Olgac 2021), checked against brute force."""
+    """And/or queries on the topology with constructed nodes (Olgac 2021), checked against brute force."""
 
     def check_vnodes(self, t, S, vmin=None, vmax=None, umin=None, umax=None):
         vmin = vmin or t.vmin(S)
@@ -341,6 +341,135 @@ class TestVNodes(unittest.TestCase):
                 x.add(v)
             S.append(v)
             self.check_vnodes(t, S, **v_s)
+
+
+class TestNodeHandles(unittest.TestCase):
+    """Handles refer directly to a node's positions; names keep working."""
+
+    def test_handles(self):
+        t = DTree()
+        b = t.insert("A", "B")
+        c = t.insert(b, "C")
+        d = t.insert("A", "D")
+        a = t.get_node("A")
+        self.assertIsInstance(b, DNode)
+        self.assertEqual(b.name, "B")
+        self.assertTrue(t.can_reach(a, c) and t.can_reach(b, c) and t.can_reach("A", c))
+        self.assertFalse(t.can_reach(c, a) or t.can_reach(b, d) or t.can_reach(c, c))
+        self.assertTrue(t.is_root(a) and not t.is_root(b))
+        self.assertEqual(t.depth(c), 2)
+        self.assertIs(c.parent, b)
+        self.assertIsNone(a.parent)
+        self.assertEqual([k.name for k in a.children], ["B", "D"])
+        self.assertIs(t.try_get_node("D"), d)
+        self.assertIsNone(t.try_get_node("X"))
+        t.cut_n_paste(c, d)
+        self.assertTrue(t.can_reach(d, c) and not t.can_reach(b, c))
+        self.assertTrue(t.can_reach(t.get_node("A"), t.get_node("C")))  # handles stay valid after a move
+        t.delete(b)
+        self.assertFalse(b.is_in_tree or t.can_reach(a, b))
+        with self.assertRaises(KeyError):
+            t.insert(b, "E")
+        other = DTree("other")
+        x = other.insert("X", "Y")
+        self.assertFalse(t.can_reach(a, x))
+        with self.assertRaises(KeyError):
+            t.delete(x)
+        self.assertEqual(t.delete_subtree(d), ["D", "C"])
+        self.assertFalse(c.is_in_tree)
+        self.assertEqual(t.size, 1)
+
+    def test_and_or_queries_accept_handles(self):
+        t = DTree()
+        b = t.insert("A", "B")
+        c = t.insert(b, "C")
+        d = t.insert("A", "D")
+        a = t.get_node("A")
+        self.assertTrue(t.vmin([c, d]).reaches_all(a))
+        self.assertFalse(t.vmin([c, "D"]).reaches_all(b))
+        self.assertTrue(t.vmax([c, d]).reaches_some(b))
+        self.assertTrue(t.umax([a, b]).reached_by_all(c))
+        self.assertTrue(t.umin([b, d]).reached_by_some(c))
+
+
+class TestSubtreeEnd(unittest.TestCase):
+    """The end of a subtree in Q1 (walk with a budget, validated hint, path compression)."""
+
+    @staticmethod
+    def _ref_last(t, v):
+        w = v
+        while t.children(w):
+            w = t.children(w)[-1]
+        return w
+
+    def test_top_down_comb(self):
+        # a chain, then new leaves under the spine nodes from the top down: the plain walk
+        # would be O(depth) per insertion here
+        t, ref = DTree(), Reference()
+        d = 300
+        names = ["n0"]
+        for i in range(1, d):
+            t.insert(names[-1], f"n{i}")
+            ref.insert(names[-1], f"n{i}")
+            names.append(f"n{i}")
+        k = d
+        for rnd_ in range(3):
+            for i in range(d):
+                t.insert(f"n{i}", f"x{k}")
+                ref.insert(f"n{i}", f"x{k}")
+                k += 1
+        check(self, t, ref)
+        for v in random.Random(1).sample(t.nodes, 50):
+            self.assertEqual(t.subtree_last(v), self._ref_last(t, v))
+
+    def test_inserts_mixed_with_deletes_and_moves(self):
+        self._mixed()
+
+    def test_hint_path_always(self):
+        # budget 0: every lookup of a subtree's end goes through the validated hint
+        import dtree.dtree as mod
+        saved = mod._BUDGET
+        mod._BUDGET = 0
+        try:
+            self._mixed()
+            self.test_top_down_comb()
+        finally:
+            mod._BUDGET = saved
+
+    def _mixed(self):
+        for seed in range(25):
+            t, ref, rnd = random_tree(40, seed)
+            k = 40
+            for step in range(150):
+                nodes = ref.nodes()
+                inner = [v for v in nodes if v != ref.root]
+                r = rnd.random()
+                if r < 0.55 or len(inner) < 8:
+                    # favor deep parents and the spine of last children
+                    p = rnd.choice(nodes) if rnd.random() < 0.5 else self._ref_last(t, rnd.choice(nodes))
+                    if rnd.random() < 0.3:
+                        p = ref.root
+                    t.insert(p, f"x{k}")
+                    ref.insert(p, f"x{k}")
+                    k += 1
+                elif r < 0.7:
+                    v = rnd.choice(inner)
+                    t.delete(v)
+                    ref.delete(v)
+                elif r < 0.8:
+                    v = rnd.choice(inner)
+                    t.delete_subtree(v)
+                    ref.delete_subtree(v)
+                else:
+                    u = rnd.choice(inner)
+                    banned = set(t.subtree(u))
+                    p = rnd.choice([w for w in nodes if w not in banned])
+                    t.cut_n_paste(u, p)
+                    ref.move(u, p)
+                if step % 10 == 0:
+                    for v in rnd.sample(ref.nodes(), min(10, len(ref.nodes()))):
+                        self.assertEqual(t.subtree_last(v), self._ref_last(t, v))
+            check(self, t, ref)
 
 
 class TestAgainstReference(unittest.TestCase):

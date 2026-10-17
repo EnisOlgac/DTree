@@ -1,6 +1,6 @@
 """DTree: directed tree library with dual projections Q1 and Q2."""
 
-from .dtree import SINK, SOURCE, DList, DTree, UMax, UMin, VMax, VMin
+from .dtree import SINK, SOURCE, DList, DNode, DTree, UMax, UMin, VMax, VMin
 
-__all__ = ["DTree", "DList", "VMin", "VMax", "UMin", "UMax", "SOURCE", "SINK"]
-__version__ = "1.5.0"
+__all__ = ["DTree", "DNode", "DList", "VMin", "VMax", "UMin", "UMax", "SOURCE", "SINK"]
+__version__ = "1.6.0"
