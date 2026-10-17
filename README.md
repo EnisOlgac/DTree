@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7560--6107-a6ce39.svg)](https://orcid.org/0009-0009-7560-6107)
 
-`DTree` is a minimal library for single-rooted directed trees whose structure is encoded by two linear projections, `Q1` and `Q2`. Reachability between any two nodes is answered by comparing their positions, without traversing the tree.
+`DTree` encodes the topology of a single-rooted directed tree explicitly by two linear projections, `Q1` and `Q2`. Reachability between any two nodes, as well as and/or queries over sets of nodes, is answered by comparing positions, without traversing the tree, and the encoding is updated incrementally as the tree changes.
 
 The reference implementation is in Python ([`python/`](python/)), with no dependencies and a test suite. The C# implementation and a WPF viewer are in [`csharp/`](csharp/).
 
@@ -42,12 +42,12 @@ Positions are fractions, an idea of the author. A new node gets the *mediant* (a
 - Reachability check in O(1) via positions in `Q1` and `Q2`
 - Dynamic operations: `insert`, `delete` (children move up), `delete_subtree`, `cut_n_paste` (move a subtree)
 - Structural queries: ancestry, depth, paths, subtrees
-- Set queries in O(1) or O(log k) via constructed nodes VMin, VMax, UMin and UMax (see below)
+- And/or queries on the topology in O(1) or O(log k) via constructed nodes VMin, VMax, UMin and UMax (see below)
 - No limit on tree depth or width
 
-## Set Queries
+## And/or Queries on the Topology
 
-Questions about a set of nodes *S* reduce to comparisons with a *constructed node*, an idea of the author (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum or the maximum of each index over *S*, taken separately in `Q1` and `Q2`. The two values usually come from two different members, so the constructed node is no real node, but it is compared like one. Its name says which role *S* plays in `can_reach(u, v)`: *V* when *S* is the target, *U* when *S* is the source.
+Does *u* reach all of a set of nodes *S* (*u* → *s*₁ **and** *u* → *s*₂ …), or some of them (**or**)? Is *v* reached by all of *S*, or by some? Each of these questions reduces to comparisons with a *constructed node*, an idea of the author (E. Olgac, "Topology and Structure of Directed Graphs - Inducing a Subgraph," 2021): the minimum or the maximum of each index over *S*, taken separately in `Q1` and `Q2`. The two values usually come from two different members, so the constructed node is no real node, but it is compared like one. Its name says which role *S* plays in `can_reach(u, v)`: *V* when *S* is the target, *U* when *S* is the source.
 
 | question | constructed node | test | exact? |
 | --- | --- | --- | --- |
@@ -59,7 +59,7 @@ Questions about a set of nodes *S* reduce to comparisons with a *constructed nod
 For the two "some" questions the constructed node only rejects quickly. The exact answers use the order of the members in `Q1`: the subtree of *u* is the block directly after *u* in `Q1`, so *u* reaches some member exactly when the first member after *u* does; and *v* is reached by some member exactly when the last *topmost* member before *v* (one with no ancestor in *S*) reaches it.
 
 ```python
-t.insert("A", "D")             # the Quick Start tree, plus D under A
+# the Quick Start tree (A -> B -> C, A -> D)
 t.vmin(["C", "D"]).reaches_all("A")        # True: A reaches C and D
 t.vmin(["C", "D"]).reaches_all("B")        # False: B reaches C only
 t.vmax(["C", "D"]).reaches_some("B")       # True
@@ -67,7 +67,31 @@ t.umax(["A", "B"]).reached_by_all("C")     # True: A and B both reach C
 t.umin(["B", "D"]).reached_by_some("C")    # True: B reaches C
 ```
 
-In C#: `t.VMin(nodes).ReachesAll(u)`, `t.VMax(nodes).ReachesSome(u)`, `t.UMax(nodes).ReachedByAll(v)`, `t.UMin(nodes).ReachedBySome(v)`, with names or node handles; `MayReachSome` and `MayBeReachedBySome` are the O(1) filters. A constructed node stores its members, not positions; since insertions keep the order of existing nodes, it stays valid while the tree grows, and after a deletion or a move it is recomputed on its next use. A classical tree with parent and child links answers the same questions by climbing towards the root. See [`docs/set-queries.md`](docs/set-queries.md).
+In C#: `t.VMin(nodes).ReachesAll(u)`, `t.VMax(nodes).ReachesSome(u)`, `t.UMax(nodes).ReachedByAll(v)`, `t.UMin(nodes).ReachedBySome(v)`, with names or node handles; `MayReachSome` and `MayBeReachedBySome` are the O(1) filters. A constructed node stores its members, not positions; since insertions keep the order of existing nodes, it stays valid while the tree grows, and after a deletion or a move it is recomputed on its next use. A classical tree with parent and child links answers the same questions by climbing towards the root. See [`docs/and-or-queries.md`](docs/and-or-queries.md).
+
+## Use Cases
+
+`DTree` fits wherever a hierarchy changes while it is being queried:
+
+- **Tree views with expand/collapse.** A collapsed node shows only its own row; an expanded one shows its children. `Q1` is already the display order, so the visible rows follow by walking `Q1` and jumping over the block of every collapsed node with `subtree_last`. Whether a node is visible is an and/or query: it is hidden exactly when some collapsed node reaches it.
+
+  ```python
+  def visible_rows(t, collapsed):
+      rows, v = [], t.root
+      while v != t.sink:
+          rows.append(v)
+          if v in collapsed:
+              v = t.subtree_last(v)      # jump over the hidden block
+          v = t.Q1.next(v)
+      return rows
+
+  hidden = t.umin(collapsed).reached_by_some(v)   # is v inside a collapsed subtree?
+  ```
+
+- **File and directory trees:** is this file under that folder, while files are added and moved?
+- **Syntax trees and scopes** in editors and compilers: is this node inside that function, during editing?
+- **Hierarchies** such as category trees, org charts, nested comments or UI component trees.
+- **XML/JSON documents:** does this element contain all (and) or any (or) of these elements?
 
 ## Installation
 
@@ -81,8 +105,7 @@ To be notified of new versions on GitHub, use *Watch → Custom → Releases*.
 ## Quick Start (Python)
 
 ```python
-import sys; sys.path.insert(0, "python")
-from dtree import DTree
+from dtree import DTree         # pip install dtree-encoding
 
 t = DTree("P1")
 t.insert("A", "B")
@@ -91,6 +114,11 @@ t.insert("B", "C")
 t.can_reach("A", "C")   # True
 t.path_to_root("C")     # ['C', 'B', 'A']
 t.q1, t.q2              # (['A', 'B', 'C'], ['A', 'B', 'C'])
+
+# Node handles skip the lookup by name (insert returns the new node's handle):
+a, c = t.get_node("A"), t.get_node("C")
+t.can_reach(a, c)       # True, two position comparisons
+d = t.insert(a, "D")
 ```
 
 Load a sample tree (`parent: child1; child2` per line):
@@ -139,7 +167,7 @@ The author's original C# prototype (with the WPF viewer on top of it) is include
 ## Documentation
 
 - [API reference (Markdown)](docs/API.md)
-- [Set queries with constructed nodes](docs/set-queries.md)—with a comparison to classical doubly linked trees
+- [And/or queries on the topology](docs/and-or-queries.md)—constructed nodes, with a comparison to classical doubly linked trees and measurements
 - [API reference (PDF)](docs/User.Doc.pdf)—LaTeX source: [`docs/User.Doc.tex`](docs/User.Doc.tex)
 
 ## Repository Layout
@@ -166,7 +194,7 @@ The method is described in:
 
 If you use `DTree` in academic work, please cite the paper above. GitHub's "Cite this repository" button in the sidebar shows it, using the metadata in [`CITATION.cff`](CITATION.cff).
 
-To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.5.0, Zenodo, 2026. doi: [10.5281/zenodo.23426313](https://doi.org/10.5281/zenodo.23426313) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
+To cite the software itself, use its Zenodo archive: E. Olgac, *DTree—Topology and Structure of Directed Trees: An Incremental Encoding*, version 1.6.0, Zenodo, 2026. doi: [10.5281/zenodo.23434347](https://doi.org/10.5281/zenodo.23434347) (all versions: [10.5281/zenodo.23395710](https://doi.org/10.5281/zenodo.23395710)).
 
 ## License
 
