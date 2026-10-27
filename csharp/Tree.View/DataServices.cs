@@ -43,20 +43,11 @@ namespace Tree.View {
                 if (line.Substring(0, 2) == "--") { continue; }
                 if (line.Substring(0, 2) == "**") { continue; }
                 if (line.Substring(0, 2) == "@@") { break; }
-                var edgeDef = line.Split(':');
-                var uDef = edgeDef[0].Trim();
-                ;
-                var succList = edgeDef[1].Split(';');
-                if (edgeDef[1] == "") { continue; }
-                var succs = succList.GetUpperBound(0);
-                for (int i = 0; i <= succs; i++) {
-                    var vDef = succList[i].Trim();
-                    if (vDef == "") continue;
-                    try {
-                        T.Insert(uDef, vDef);
-                    } catch (Exception e) when (e is ArgumentException || e is KeyNotFoundException) {
-                        MessageBox.Show($"Line {numLines}: ({uDef}, {vDef}) skipped.\n{e.Message}", "DTree", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
+                if (line.IndexOfAny(new[] { ':', '>', '<' }) < 0) continue;
+                try {
+                    T.AddLine(line);                                // "p: c1; c2", "s > c1; c2" or "s < c1; c2"
+                } catch (Exception e) when (e is ArgumentException || e is KeyNotFoundException || e is InvalidOperationException) {
+                    MessageBox.Show($"Line {numLines}: \"{line.Trim()}\" not fully applied.\n{e.Message}", "DTree", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
             graph.Close();

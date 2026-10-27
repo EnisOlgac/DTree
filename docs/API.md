@@ -22,6 +22,22 @@ Insert a new edge into the tree.
 - The `parent` must already exist in the tree.
 - The `child` must not already exist.
 - Updates Q1 and Q2 projections accordingly.
+- The new node becomes the **last** child of `parent`.
+
+### `DNode InsertAfter(string sibling, string child)` / `DNode InsertBefore(string sibling, string child)`
+Insert a new node as a sibling of an existing one, with the same parent.
+- `InsertAfter`: `child` goes directly after `sibling` among the parent's children. In Q1 it is placed after the end of the sibling's subtree, in Q2 directly before the sibling.
+- `InsertBefore`: `child` goes directly before `sibling`. In Q1 it is placed directly before the sibling, in Q2 after the end of the sibling's subtree there.
+- Two local list insertions, as with `Insert`; no other node moves, and constructed nodes stay valid.
+- The root has no siblings (`InvalidOperationException`; Python: `ValueError`). Both accept a name or a `DNode` handle and return the new handle.
+- Python: `insert_after(sibling, child)`, `insert_before(sibling, child)`.
+
+### `List<DNode> AddLine(string line)`
+Apply one line of the description format used by the `.csx` files and `FromFile`:
+- `p: c1; c2`: `c1` and `c2` become last children of `p`.
+- `s > c1; c2`: `c1` goes directly after `s`, then `c2` directly after `c1`.
+- `s < c1; c2`: `c1` and `c2` go directly before `s`, in that order.
+- Python: `add_line(line)`.
 
 ### `bool Contains(string node)`
 Check if a node exists.

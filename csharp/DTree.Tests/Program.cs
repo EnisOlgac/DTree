@@ -55,6 +55,10 @@ namespace DirectedTrees.Tests {
                 ("constructed nodes survive inserts, deletes and moves", Tests.ConstructedSurvivesChanges),
                 ("constructed nodes: discard", Tests.ConstructedDiscard),
                 ("next in Q1", Tests.NextInQ1),
+                ("sibling insert: example and rules", Tests.SiblingInsertExample),
+                ("sibling insert: description lines", Tests.SiblingInsertLines),
+                ("sibling insert: random mix vs reference", Tests.SiblingInsertRandomMix),
+                ("sibling insert: same gap many times", Tests.SiblingInsertSameGap),
                 ("subtree end: top-down comb", Tests.SubtreeEndTopDownComb),
                 ("subtree end: inserts mixed with deletes and moves", Tests.SubtreeEndMixed),
                 ("subtree end: hint path always (budget 0)", Tests.SubtreeEndHintPathAlways),
@@ -145,6 +149,20 @@ namespace DirectedTrees.Tests {
             Children[p].Remove(v);
             if (Children[p].Count == 0) Children.Remove(p);
             foreach (var n in gone) Parent.Remove(n);
+        }
+
+        public void InsertAfter(string s, string v) {
+            var p = Parent[s];
+            var sib = Children[p];
+            sib.Insert(sib.IndexOf(s) + 1, v);
+            Parent[v] = p;
+        }
+
+        public void InsertBefore(string s, string v) {
+            var p = Parent[s];
+            var sib = Children[p];
+            sib.Insert(sib.IndexOf(s), v);
+            Parent[v] = p;
         }
 
         public void Move(string u, string p) {
@@ -321,6 +339,13 @@ namespace DirectedTrees.Tests {
                 Equal(t.Root, "01", $"{name}: root");
                 Check(t.CanReach("01", "22"), $"{name}: 01 reaches 22");
                 Seq(t.PathToRoot("22"), new[] { "22", "10", "06", "04", "01" }, $"{name}: PathToRoot(22)");
+            }
+            var sib = System.IO.Path.Combine(dir, "siblings.csx");
+            if (File.Exists(sib)) {
+                var t = DTree.FromFile(sib);
+                Seq(t.Children("01"), new[] { "02", "04", "06", "05" }, "siblings.csx: children of 01");
+                Seq(t.Q1.ToList(), new[] { "01", "02", "03a", "03", "04", "06", "05" }, "siblings.csx: Q1");
+                Seq(t.Q2.ToList(), new[] { "01", "05", "06", "04", "02", "03", "03a" }, "siblings.csx: Q2");
             }
         }
 
@@ -727,6 +752,107 @@ namespace DirectedTrees.Tests {
             var w = v;
             while (r.Children.TryGetValue(w, out var kids) && kids.Count > 0) w = kids[^1];
             return w;
+        }
+
+        public static void SiblingInsertExample() {
+            var t = new DTree();
+            t.Insert("A", "B");
+            t.Insert("A", "D");
+            t.Insert("B", "C");
+            t.InsertAfter("B", "X");                                    // A: B, X, D
+            t.InsertBefore("B", "W");                                   // A: W, B, X, D
+            t.InsertBefore("C", "C0");                                  // B: C0, C
+            Seq(t.Children("A"), new[] { "W", "B", "X", "D" }, "children of A");
+            Seq(t.Children("B"), new[] { "C0", "C" }, "children of B");
+            Seq(t.Q1.ToList(), new[] { "A", "W", "B", "C0", "C", "X", "D" }, "Q1");
+            Seq(t.Q2.ToList(), new[] { "A", "D", "X", "B", "C", "C0", "W" }, "Q2");
+            Check(t.CanReach("A", "X") && !t.CanReach("B", "X"), "X is a child of A, not of B");
+            Equal(t.SubtreeLast("A"), "D", "SubtreeLast(A)");
+            Throws<InvalidOperationException>(() => t.InsertAfter("A", "Z"), "the root has no siblings");
+            Throws<InvalidOperationException>(() => t.InsertBefore("A", "Z"), "the root has no siblings (before)");
+            Throws<ArgumentException>(() => t.InsertAfter("B", "C"), "child already in the tree");
+            Throws<KeyNotFoundException>(() => t.InsertAfter("nobody", "Z"), "sibling must exist");
+            var n = t.InsertAfter(t.GetNode("D"), "E");
+            Equal(n.Name, "E", "InsertAfter(handle) returns the new handle");
+            Seq(t.Children("A"), new[] { "W", "B", "X", "D", "E" }, "children of A after E");
+        }
+
+        public static void SiblingInsertLines() {
+            var t = new DTree();
+            t.AddLine("A: B; D");
+            t.AddLine("B > X; Y");                                      // X after B, Y after X
+            t.AddLine("D < W1; W2");                                    // W1 before D, W2 before D
+            t.AddLine("B: C");
+            Seq(t.Children("A"), new[] { "B", "X", "Y", "W1", "W2", "D" }, "children of A");
+            Seq(t.Children("B"), new[] { "C" }, "children of B");
+        }
+
+        public static void SiblingInsertRandomMix() {
+            int saved = DTree.Budget;
+            try {
+                foreach (var budget in new[] { saved, 0 }) {
+                    DTree.Budget = budget;
+                    for (int seed = 0; seed < 15; seed++) {
+                        var (t, r, rnd) = RandomTree(20, seed);
+                        int k = 0;
+                        for (int step = 0; step < 120; step++) {
+                            var nodes = r.Nodes();
+                            var inner = nodes.Where(n => n != r.Root).ToList();
+                            double x = rnd.NextDouble();
+                            var name = $"x{k}";
+                            if (x < 0.25 || inner.Count == 0) {
+                                var p = nodes[rnd.Next(nodes.Count)];
+                                t.Insert(p, name);
+                                r.Insert(p, name);
+                                k++;
+                            } else if (x < 0.5) {
+                                var sb = inner[rnd.Next(inner.Count)];
+                                t.InsertAfter(sb, name);
+                                r.InsertAfter(sb, name);
+                                k++;
+                            } else if (x < 0.75) {
+                                var sb = inner[rnd.Next(inner.Count)];
+                                t.InsertBefore(sb, name);
+                                r.InsertBefore(sb, name);
+                                k++;
+                            } else if (x < 0.85 && inner.Count > 10) {
+                                var v = inner[rnd.Next(inner.Count)];
+                                t.Delete(v);
+                                r.Delete(v);
+                            } else if (inner.Count > 10) {
+                                var u = inner[rnd.Next(inner.Count)];
+                                var banned = new HashSet<string>(t.Subtree(u));
+                                var targets = nodes.Where(n => !banned.Contains(n)).ToList();
+                                var p = targets[rnd.Next(targets.Count)];
+                                t.CutNPaste(u, p);
+                                r.Move(u, p);
+                            }
+                            CheckAgainst(t, r, rnd);
+                            foreach (var v in r.Nodes().OrderBy(_ => rnd.Next()).Take(3))
+                                Equal(t.SubtreeLast(v), RefLast(r, v), $"seed {seed}, step {step}: SubtreeLast({v})");
+                        }
+                    }
+                }
+            } finally {
+                DTree.Budget = saved;
+            }
+        }
+
+        public static void SiblingInsertSameGap() {
+            // repeated insertion into the same gap from both sides: positions stay strictly increasing
+            var t = new DTree();
+            var r = new Reference();
+            t.Insert("r", "a"); r.Insert("r", "a");
+            t.Insert("r", "b"); r.Insert("r", "b");
+            string left = "a", right = "b";
+            for (int i = 0; i < 400; i++) {
+                if (i % 2 == 1) {
+                    t.InsertAfter(left, $"l{i}"); r.InsertAfter(left, $"l{i}"); left = $"l{i}";
+                } else {
+                    t.InsertBefore(right, $"r{i}"); r.InsertBefore(right, $"r{i}"); right = $"r{i}";
+                }
+            }
+            CheckAgainst(t, r, new Random(1));
         }
 
         public static void SubtreeEndTopDownComb() {

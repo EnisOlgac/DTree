@@ -64,22 +64,38 @@ namespace DirectedTrees {
 
         // -- construction -----------------------------------------------------------
 
-        /// <summary>Read the "parent: child1; child2" format used by the .csx examples.</summary>
+        /// <summary>
+        /// Read the format used by the .csx examples: "parent: child1; child2" adds last children,
+        /// "sibling > child1; child2" inserts siblings directly after sibling (in that order),
+        /// "sibling &lt; child1; child2" directly before it.
+        /// </summary>
         public static DTree FromFile(string path, string? treeId = null) {
             var tree = new DTree(treeId ?? System.IO.Path.GetFileNameWithoutExtension(path));
             foreach (var raw in File.ReadLines(path)) {
-                var line = raw.Trim().TrimStart('﻿');
+                var line = raw.Trim().TrimStart('\uFEFF');
                 if (line.Length == 0 || line.StartsWith('#') || line.StartsWith("--") || line.StartsWith("**")) continue;
                 if (line.StartsWith("@@")) break;
-                int colon = line.IndexOf(':');
-                if (colon < 0) continue;
-                var parent = line[..colon].Trim();
-                foreach (var part in line[(colon + 1)..].Split(';')) {
-                    var child = part.Trim();
-                    if (child.Length > 0) tree.Insert(parent, child);
-                }
+                if (line.IndexOfAny(new[] { ':', '>', '<' }) < 0) continue;
+                tree.AddLine(line);
             }
             return tree;
+        }
+
+        /// <summary>Apply one line of the description format (see FromFile); returns the new handles.</summary>
+        public List<DNode> AddLine(string line) {
+            int at = line.IndexOfAny(new[] { ':', '>', '<' });
+            if (at < 0) throw new ArgumentException($"no ':', '>' or '<' in '{line}'");
+            char op = line[at];
+            var anchor = line[..at].Trim();
+            var added = new List<DNode>();
+            foreach (var part in line[(at + 1)..].Split(';')) {
+                var child = part.Trim();
+                if (child.Length == 0) continue;
+                if (op == ':') added.Add(Insert(anchor, child));
+                else if (op == '>') { added.Add(InsertAfter(anchor, child)); anchor = child; }   // the next one goes after this one
+                else added.Add(InsertBefore(anchor, child));
+            }
+            return added;
         }
 
         /// <summary>
@@ -111,6 +127,61 @@ namespace DirectedTrees {
             Attach(parent, c);
             _edgeLog.Add($"({parent.Name}, {child})");
             return c;
+        }
+
+        /// <summary>
+        /// Insert child as a sibling directly after sibling (same parent) and return its handle. In Q1
+        /// it goes after the end of the sibling's subtree, in Q2 directly before the sibling; no other
+        /// node moves. The root has no siblings.
+        /// </summary>
+        public DNode InsertAfter(string sibling, string child) => InsertAfter(Require(sibling), child);
+
+        public DNode InsertAfter(DNode sibling, string child) {
+            var s = CheckSibling(sibling, child);
+            var p = s.Up!;
+            int i = p.Kids!.IndexOf(s);
+            var w = LastInQ1(s);
+            var n = Link(child, p, i + 1, w.C1, s.C2.Prev!);
+            if (i + 1 == p.Kids.Count - 1) p.Last = n;              // n is now the last node of p's subtree
+            _edgeLog.Add($"({s.Name} > {child})");
+            return n;
+        }
+
+        /// <summary>
+        /// Insert child as a sibling directly before sibling (same parent) and return its handle. In Q1
+        /// it goes directly before the sibling, in Q2 after the end of the sibling's subtree there
+        /// (directly before the previous sibling; for a first child, after the end of the parent's
+        /// subtree in Q2, found by following first children); no other node moves.
+        /// </summary>
+        public DNode InsertBefore(string sibling, string child) => InsertBefore(Require(sibling), child);
+
+        public DNode InsertBefore(DNode sibling, string child) {
+            var s = CheckSibling(sibling, child);
+            var p = s.Up!;
+            int i = p.Kids!.IndexOf(s);
+            var q2After = i > 0 ? p.Kids[i - 1].C2.Prev! : LastInQ2(s).C2;
+            var n = Link(child, p, i, s.C1.Prev!, q2After);
+            _edgeLog.Add($"({s.Name} < {child})");
+            return n;
+        }
+
+        private DNode CheckSibling(DNode sibling, string child) {
+            Own(sibling);
+            if (IsMarker(child)) throw new ArgumentException("SOURCE/SINK markers cannot be tree nodes");
+            if (sibling.Up == _source) throw new InvalidOperationException("the root has no siblings");
+            if (_nodes.ContainsKey(child)) throw new ArgumentException($"child '{child}' is already in the tree");
+            return sibling;
+        }
+
+        /// <summary>Create a child of p at position index among p's children, linked after the given cells.</summary>
+        private DNode Link(string name, DNode p, int index, DList.Cell q1After, DList.Cell q2After) {
+            var n = NewNode(name);
+            n.C2 = _q2.InsertNewAfter(name, q2After);
+            n.C1 = _q1.InsertNewAfter(name, q1After);
+            n.C1.Node = n.C2.Node = n;
+            n.Up = p;
+            p.Kids!.Insert(index, n);
+            return n;
         }
 
         private static bool IsMarker(string v) => v == Marker.Source || v == Marker.Sink;

@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>DirectedTrees</RootNamespace>
     <AssemblyName>DTree.Core</AssemblyName>
-    <Version>1.7.0</Version>
+    <Version>1.8.0</Version>
     <Authors>Enis Olgac</Authors>
     <Description>DTree: incremental encoding of the topology of directed trees by two projections (Q1, Q2): O(1) reachability, and/or queries on the topology of the tree, dynamic (incremental) updates.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

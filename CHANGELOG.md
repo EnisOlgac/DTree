@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.0
+
+**Inserting siblings at a chosen place** (Python and C#). `insert_after(sibling, child)` / `InsertAfter` puts the new node directly after an existing sibling, `insert_before(sibling, child)` / `InsertBefore` directly before it, with the same parent. Until now a new node always became the last child. Both are two local list insertions, like `insert`: in Q1 after the end of the sibling's subtree (or directly before the sibling), in Q2 directly before the sibling (or after the end of its subtree there). No other node moves, and constructed nodes stay valid. Inserting before a first child walks down the first children in Q2 to find the end of its subtree.
+
+The description format of the `.csx` files gets two new operators, `s > c1; c2` and `s < c1; c2`, next to `p: c1; c2` (suggested by Enis Olgac). `add_line(line)` / `AddLine` applies one such line; `from_file` / `FromFile` and the Tree.View viewer use it.
+
 ## 1.7.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23437422.

@@ -36,7 +36,9 @@ t = DTree.from_file("Test.csx")   # e.g. examples/Test.csx from the repository
 | C# (docs) | Python |
 |---|---|
 | `DTree(id)` | `DTree(tree_id="P1")` |
-| `Insert(parent, child)` | `insert(parent, child)` |
+| `Insert(parent, child)` | `insert(parent, child)` (last child) |
+| `InsertAfter`, `InsertBefore` | `insert_after(sibling, child)`, `insert_before(sibling, child)` |
+| `AddLine` | `add_line(line)` (`p: c`, `s > c`, `s < c`; also in `from_file`) |
 | `Contains(node)` | `contains(node)` / `node in t` |
 | `GetParent(node)` | `get_parent(node)` (`None` for the root) |
 | `CutNPaste(u, p)` | `cut_n_paste(subtree_root, new_parent)` |

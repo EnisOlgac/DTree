@@ -351,7 +351,12 @@ class DTree:
     # -- construction ------------------------------------------------------
     @classmethod
     def from_file(cls, path: str, tree_id: Optional[str] = None) -> "DTree":
-        """Read the ``parent: child1; child2`` format used by the .csx examples."""
+        """Read the format used by the .csx examples.
+
+        ``parent: child1; child2`` adds children as last children of ``parent``;
+        ``sibling > child1; child2`` inserts them as siblings directly after ``sibling``
+        (in that order), ``sibling < child1; child2`` directly before it.
+        """
         import os
 
         tree = cls(tree_id or os.path.splitext(os.path.basename(path))[0])
@@ -362,11 +367,26 @@ class DTree:
                     continue
                 if line.startswith("@@"):
                     break
-                parent, _, rest = line.partition(":")
-                for child in (c.strip() for c in rest.split(";")):
-                    if child:
-                        tree.insert(parent.strip(), child)
+                tree.add_line(line)
         return tree
+
+    def add_line(self, line: str) -> List[DNode]:
+        """Apply one line of the description format (see from_file); returns the new handles."""
+        at = min((i for i in (line.find(":"), line.find(">"), line.find("<")) if i >= 0), default=-1)
+        if at < 0:
+            raise ValueError(f"no ':', '>' or '<' in {line!r}")
+        op, anchor = line[at], line[:at].strip()
+        children = [c.strip() for c in line[at + 1:].split(";") if c.strip()]
+        added = []
+        for child in children:
+            if op == ":":
+                added.append(self.insert(anchor, child))
+            elif op == ">":
+                added.append(self.insert_after(anchor, child))
+                anchor = child                       # the next one goes after this one
+            else:
+                added.append(self.insert_before(anchor, child))
+        return added
 
     def insert(self, parent, child: str) -> DNode:
         """Add the edge parent -> child and return the handle of ``child``.
@@ -385,6 +405,56 @@ class DTree:
             raise ValueError(f"child {child!r} is already in the tree")
         n = self._new_node(child, p)
         self.edge_log.append(f"({p.name}, {child})")
+        return n
+
+    def insert_after(self, sibling, child: str) -> DNode:
+        """Insert ``child`` as a sibling directly after ``sibling`` (same parent) and return its
+        handle. In Q1 it goes after the end of the sibling's subtree, in Q2 directly before the
+        sibling; no other node moves. The root has no siblings."""
+        s = self._sibling(sibling, child)
+        p = s.up
+        i = p.kids.index(s)
+        w = self._subtree_last_node(s)
+        n = self._link_node(child, p, i + 1, w.c1, s.c2.prev)
+        if i + 1 == len(p.kids) - 1:
+            p.last = n                                  # n is now the last node of p's subtree
+        self.edge_log.append(f"({s.name} > {child})")
+        return n
+
+    def insert_before(self, sibling, child: str) -> DNode:
+        """Insert ``child`` as a sibling directly before ``sibling`` (same parent) and return its
+        handle. In Q1 it goes directly before the sibling, in Q2 after the end of the sibling's
+        subtree there (directly before the previous sibling; for a first child, after the end
+        of the parent's subtree in Q2, found by following first children); no other node moves."""
+        s = self._sibling(sibling, child)
+        p = s.up
+        i = p.kids.index(s)
+        q2_after = p.kids[i - 1].c2.prev if i > 0 else self._subtree_first_last_q2(s).c2
+        n = self._link_node(child, p, i, s.c1.prev, q2_after)
+        self.edge_log.append(f"({s.name} < {child})")
+        return n
+
+    def _sibling(self, sibling, child: str) -> DNode:
+        if child in (SOURCE, SINK):
+            raise ValueError("SOURCE/SINK markers cannot be tree nodes")
+        s = self._node(sibling)
+        if s.up is None:
+            raise ValueError("the root has no siblings")
+        if child in self._nodes:
+            raise ValueError(f"child {child!r} is already in the tree")
+        return s
+
+    def _link_node(self, name: str, p: DNode, index: int, q1_after, q2_after) -> DNode:
+        """Create a child of p at position ``index`` among p's children, linked after the given cells."""
+        n = DNode(name, self)
+        c1, c2 = self._q1._new(name), self._q2._new(name)
+        self._q2._link_after(c2, q2_after)
+        self._q1._link_after(c1, q1_after)
+        n.up = p
+        p.kids.insert(index, n)
+        c1.node = c2.node = n
+        n.c1, n.c2 = c1, c2
+        self._nodes[name] = n
         return n
 
     def _new_node(self, name: str, p: Optional[DNode]) -> DNode:

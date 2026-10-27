@@ -68,6 +68,18 @@ class Reference:
         for n in gone:
             del self.parent[n]
 
+    def insert_after(self, s, v):
+        p = self.parent[s]
+        sib = self.children[p]
+        sib.insert(sib.index(s) + 1, v)
+        self.parent[v] = p
+
+    def insert_before(self, s, v):
+        p = self.parent[s]
+        sib = self.children[p]
+        sib.insert(sib.index(s), v)
+        self.parent[v] = p
+
     def move(self, u, p):
         old = self.parent[u]
         self.children[old].remove(u)
@@ -557,6 +569,136 @@ class TestAgainstReference(unittest.TestCase):
                     t.cut_n_paste(u, p)
                     ref.move(u, p)
                 check(self, t, ref)
+
+
+class TestSiblingInsert(unittest.TestCase):
+    def test_example(self):
+        t = DTree()
+        t.insert("A", "B")
+        t.insert("A", "D")
+        t.insert("B", "C")
+        t.insert_after("B", "X")       # A: B, X, D
+        t.insert_before("B", "W")      # A: W, B, X, D
+        t.insert_before("C", "C0")     # B: C0, C
+        self.assertEqual(t.children("A"), ["W", "B", "X", "D"])
+        self.assertEqual(t.children("B"), ["C0", "C"])
+        self.assertEqual(t.q1, ["A", "W", "B", "C0", "C", "X", "D"])
+        self.assertEqual(t.q2, ["A", "D", "X", "B", "C", "C0", "W"])
+        self.assertTrue(t.can_reach("A", "X") and not t.can_reach("B", "X"))
+        self.assertEqual(t.subtree_last("A"), "D")
+
+    def test_rules(self):
+        t = DTree()
+        t.insert("A", "B")
+        with self.assertRaises(ValueError):
+            t.insert_after("A", "Z")           # the root has no siblings
+        with self.assertRaises(ValueError):
+            t.insert_before("A", "Z")
+        with self.assertRaises(ValueError):
+            t.insert_after("B", "A")           # already in the tree
+        with self.assertRaises(KeyError):
+            t.insert_after("nobody", "Z")
+        n = t.insert_after(t.get_node("B"), "C")   # handles work too
+        self.assertIsInstance(n, DNode)
+        self.assertEqual(t.children("A"), ["B", "C"])
+
+    def test_example_file(self):
+        t = DTree.from_file(os.path.join(EXAMPLES, "siblings.csx"))
+        self.assertEqual(t.children("01"), ["02", "04", "06", "05"])
+        self.assertEqual(t.q1, ["01", "02", "03a", "03", "04", "06", "05"])
+        self.assertEqual(t.q2, ["01", "05", "06", "04", "02", "03", "03a"])
+
+    def test_description_lines(self):
+        t = DTree()
+        t.add_line("A: B; D")
+        t.add_line("B > X; Y")         # X after B, Y after X
+        t.add_line("D < W1; W2")       # W1 before D, W2 before D
+        t.add_line("B: C")
+        self.assertEqual(t.children("A"), ["B", "X", "Y", "W1", "W2", "D"])
+        self.assertEqual(t.children("B"), ["C"])
+
+    def test_random_mix(self):
+        # all three kinds of insertion, mixed with deletes and moves, against the reference
+        import dtree.dtree as impl
+        for budget in (impl._BUDGET, 0):
+            saved, impl._BUDGET = impl._BUDGET, budget
+            try:
+                for seed in range(12):
+                    t, ref, rnd = random_tree(20, seed)
+                    k = 0
+                    for _ in range(100):
+                        nodes = ref.nodes()
+                        inner = [n for n in nodes if n != ref.root]
+                        r = rnd.random()
+                        name = f"x{k}"
+                        if r < 0.25:
+                            p = rnd.choice(nodes)
+                            t.insert(p, name)
+                            ref.insert(p, name)
+                            k += 1
+                        elif r < 0.5 and inner:
+                            s = rnd.choice(inner)
+                            t.insert_after(s, name)
+                            ref.insert_after(s, name)
+                            k += 1
+                        elif r < 0.75 and inner:
+                            s = rnd.choice(inner)
+                            t.insert_before(s, name)
+                            ref.insert_before(s, name)
+                            k += 1
+                        elif r < 0.85 and len(inner) > 10:
+                            v = rnd.choice(inner)
+                            t.delete(v)
+                            ref.delete(v)
+                        elif len(inner) > 10:
+                            u = rnd.choice(inner)
+                            banned = set(t.subtree(u))
+                            p = rnd.choice([n for n in nodes if n not in banned])
+                            t.cut_n_paste(u, p)
+                            ref.move(u, p)
+                        check(self, t, ref)
+                        for v in rnd.sample(ref.nodes(), 3):
+                            sub_v = [w for w in ref.nodes() if w == v or v == ref.root or v in ref_ancestors(ref.parent, w)]
+                            self.assertEqual(t.subtree_last(v), [w for w in t.q1 if w in sub_v][-1])
+            finally:
+                impl._BUDGET = saved
+
+    def test_same_gap_many_times(self):
+        # repeated insertion into the same gap from both sides: positions stay strictly increasing
+        t, ref = DTree(), Reference()
+        t.insert("r", "a")
+        ref.insert("r", "a")
+        t.insert("r", "b")
+        ref.insert("r", "b")
+        left, right = "a", "b"
+        for i in range(400):
+            if i % 2:
+                t.insert_after(left, f"l{i}")
+                ref.insert_after(left, f"l{i}")
+                left = f"l{i}"
+            else:
+                t.insert_before(right, f"r{i}")
+                ref.insert_before(right, f"r{i}")
+                right = f"r{i}"
+        check(self, t, ref)
+
+    def test_constructed_nodes_stay_valid(self):
+        t, ref, rnd = random_tree(60, 3)
+        S = rnd.sample(ref.nodes(), 6)
+        um, vm = t.umin(S), t.vmax(S)
+        for i in range(60):
+            s = rnd.choice([n for n in ref.nodes() if n != ref.root])
+            if i % 2:
+                t.insert_after(s, f"y{i}")
+                ref.insert_after(s, f"y{i}")
+            else:
+                t.insert_before(s, f"y{i}")
+                ref.insert_before(s, f"y{i}")
+        for v in ref.nodes():
+            anc = set(ref_ancestors(ref.parent, v)[1:]) | ({ref.root} if v != ref.root else set())
+            self.assertEqual(um.reached_by_some(v), any(m in anc for m in S), v)
+            below = {w for w in ref.nodes() if w != v and (v == ref.root or v in ref_ancestors(ref.parent, w))}
+            self.assertEqual(vm.reaches_some(v), any(m in below for m in S), v)
 
 
 class TestNoSizeLimit(unittest.TestCase):
