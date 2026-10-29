@@ -1,9 +1,10 @@
 name: publish
 
 # Runs when a GitHub release is published (gh release create vX.Y.Z ...):
-# builds the Python package and the NuGet package, checks that both carry the
-# release version, and uploads them to PyPI (dtree-encoding) and NuGet (DTree.Encoding).
-# Both uploads use Trusted Publishing: no passwords or API keys are stored in the repository.
+# builds the Python package, checks its version against the tag and uploads it to PyPI
+# (dtree-encoding), using Trusted Publishing. From 1.9.0 on, dtree-encoding only forwards to
+# triordinal-dtree; DTree.Encoding on NuGet is no longer updated (deprecated in favor of
+# Triordinal.DTree), and DTree itself is developed in EnisOlgac/Triordinal.
 
 on:
   release:
@@ -22,7 +23,9 @@ jobs:
           python-version: "3.12"
       - name: Test
         working-directory: python
-        run: python -m unittest discover -s tests
+        run: |
+          python -m pip install "triordinal-dtree>=2.0.0"
+          python -m unittest discover -s tests
       - name: Check version
         working-directory: python
         run: |
@@ -36,29 +39,3 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/dist
-
-  nuget:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write          # NuGet Trusted Publishing, no long-lived API key stored
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "9.0.x"
-      - name: Test
-        run: dotnet run --project csharp/DTree.Tests -c Release
-      - name: Pack
-        run: dotnet pack csharp/DTree.Core -c Release -o nupkg
-      - name: Check version
-        run: |
-          ls nupkg
-          test -f "nupkg/DTree.Encoding.${GITHUB_REF_NAME#v}.nupkg" || { echo "no package for version ${GITHUB_REF_NAME#v}"; exit 1; }
-      - name: NuGet login (short-lived API key via OIDC)
-        uses: NuGet/login@v1
-        id: login
-        with:
-          user: ${{ secrets.NUGET_USER }}    # nuget.org profile name, not the email address
-      - name: Push
-        run: dotnet nuget push "nupkg/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

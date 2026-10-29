@@ -1,5 +1,7 @@
 # DTree for Python
 
+> **DTree has moved to [Triordinal](https://github.com/EnisOlgac/Triordinal)** (from version 2.0.0, October 29, 2026; Zenodo doi:[10.5281/zenodo.23760809](https://doi.org/10.5281/zenodo.23760809)). The API is unchanged; please install `triordinal-dtree` (Python, `from triordinal.dtree import DTree`) or `Triordinal.DTree` (NuGet). This repository keeps versions 1.0.0 to 1.9.0; `dtree-encoding` 1.9.0 only forwards to `triordinal-dtree`.
+
 Python implementation of `DTree`, the incremental encoding of the topology of directed trees by two projections Q1 and Q2 (see the [API reference](https://github.com/EnisOlgac/DTree/blob/main/docs/API.md) and the [paper](https://doi.org/10.5772/intechopen.1013408)). No dependencies; Python 3.8+.
 
 ```

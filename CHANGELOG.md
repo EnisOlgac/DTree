@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0
+
+**DTree has moved to [Triordinal](https://github.com/EnisOlgac/Triordinal)** (version 2.0.0, Zenodo doi:10.5281/zenodo.23760809). `dtree-encoding` 1.9.0 contains no code of its own: it depends on `triordinal-dtree` and forwards `import dtree` to `triordinal.dtree`, with a deprecation warning. Please switch to `pip install triordinal-dtree` and `from triordinal.dtree import DTree`; the API is the same. On NuGet, `DTree.Encoding` is deprecated in favor of `Triordinal.DTree`. Triordinal 2.0.0 also fixes a 64-bit overflow in the C# list and protects the list markers.
+
 ## 1.8.0
 
 Archived on Zenodo: doi:10.5281/zenodo.23685810.

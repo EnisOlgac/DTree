@@ -7,6 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 [![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7560--6107-a6ce39.svg)](https://orcid.org/0009-0009-7560-6107)
 
+> **DTree has moved to [Triordinal](https://github.com/EnisOlgac/Triordinal)** (from version 2.0.0, October 29, 2026; Zenodo doi:[10.5281/zenodo.23760809](https://doi.org/10.5281/zenodo.23760809)). The API is unchanged; please install `triordinal-dtree` (Python, `from triordinal.dtree import DTree`) or `Triordinal.DTree` (NuGet). This repository keeps versions 1.0.0 to 1.9.0; `dtree-encoding` 1.9.0 only forwards to `triordinal-dtree`.
+
 `DTree` encodes the topology of a single-rooted directed tree explicitly by two linear projections, `Q1` and `Q2`. Reachability between any two nodes, as well as and/or queries over sets of nodes, is answered by comparing positions, without traversing the tree, and the encoding is updated incrementally as the tree changes.
 
 The reference implementation is in Python ([`python/`](python/)), with no dependencies and a test suite. The C# implementation and a WPF viewer are in [`csharp/`](csharp/).
